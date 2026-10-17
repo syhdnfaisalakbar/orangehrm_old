@@ -1,0 +1,101 @@
+# ============================================================
+# .gitignore — OrangeHRM ASG
+# Prinsip: yang masuk git = yang dibutuhkan server produksi.
+# Yang TIDAK masuk: kredensial, data hasil dump, log, cache,
+# node_modules, dan file sementara dev.
+# ============================================================
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE / editor
+.idea/
+.vscode/
+*.sublime-*
+.project
+.classpath
+.settings/
+.netbeans/
+nbproject/
+
+# PHP
+composer.phar
+*.log
+*.cache
+.env
+.env.local
+.env.*.local
+.php_cs.cache
+
+# CATATAN: src/vendor SENGAJA di-commit (deploy tidak butuh composer di server).
+# composer.lock juga di-commit untuk reproduksibilitas. Kalau nanti pilih
+# composer install di server, cukup tambah 2 baris: src/vendor/ dan src/composer.lock
+/vendor/
+
+# OrangeHRM specifics
+web/upload/
+web/assets/
+cache/
+log/
+tmp/
+conference/
+upgrade/
+
+# Kredensial & konfigurasi per-environment (JANGAN masuk git)
+lib/confs/Conf.php
+lib/confs/conf.php
+src/config/Conf.php
+installer/cli_install_config.yaml
+web/proxy/config.php
+build/product_mode.php
+
+# Build artifacts
+# web/dist SENGAJA di-commit: berisi hasil build JS/CSS yang dibaca browser.
+# Server produksi tidak punya node/yarn, jadi tanpa ini aplikasi tampil kosong.
+build/
+src/client/dist/
+node_modules/
+bower_components/
+src/client/.yarn/
+src/client/package-lock.json
+
+# Logs and debug
+var/
+*.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+build_log*.txt
+*_build*.log
+
+# Unit test output
+phpunit.xml
+.phpunit.result.cache
+
+# Data & backup — JANGAN masuk git (besar + isi data asli)
+*.sql
+*.bak
+*.bak-*
+web/proxy/acumatica_push_log.txt
+web/proxy/*_log.txt
+
+# File sementara dev / agent
+tmp_*.php
+router_dev.php
+.hermes/
+deploy/deploy.conf
+deploy/schema_local.txt
+deploy/schema_err.txt
+
+# Sisa dev khas htdocs
+check_html.php
+revert-mitt-fix.js
+tmp_*.sql
+
+# File runtime (jangan pernah masuk repo)
+web/proxy/acumatica_cookies.txt
+web/proxy/*.lock

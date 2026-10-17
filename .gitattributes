@@ -1,0 +1,29 @@
+# Normalisasi line ending: server produksi Linux, dev Windows/WSL.
+# Tanpa ini, file .sh bisa rusak (CRLF) saat dipindah ke Linux.
+* text=auto eol=lf
+
+*.sh     text eol=lf
+*.php    text eol=lf
+*.vue    text eol=lf
+*.js     text eol=lf
+*.ts     text eol=lf
+*.json   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.md     text eol=lf
+*.sql    text eol=lf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Binary — jangan disentuh
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
+*.zip    binary
+*.gz     binary

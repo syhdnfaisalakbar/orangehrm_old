@@ -1,0 +1,41 @@
+# ============================================================
+# rsync-exclude.txt — daftar file/folder yang TIDAK ikut ke prod
+# Dipakai otomatis oleh deploy.sh (--exclude-from)
+# ============================================================
+
+# --- Repo / dependency (dikelola terpisah di server) ---
+.git/
+node_modules/
+src/vendor/
+.yarn/
+.pnp.*
+.yarnrc.*
+
+# --- Runtime (di-regenerate / di-write server) ---
+src/cache/
+src/log/
+var/
+tmp/
+
+# --- Secrets (konfigurasi manual di server, JANGAN ikut) ---
+/src/config/Conf.php
+/lib/confs/Conf.php
+/lib/confs/conf.php
+installer/cli_install_config.yaml
+
+# --- Artifact development (build log / dump / backup / temp) ---
+*.sql
+*.bak
+*.log
+build_log*.txt
+*_build*.log
+tmp_*.php
+.php_cs.cache
+.phpunit.result.cache
+
+# --- File sementara editor ---
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,63 @@
+<?php
+/**
+ * Conf.php — TEMPLATE kredensial database.
+ *
+ * CARA PAKAI:
+ *   1. copy file ini jadi lib/confs/Conf.php
+ *   2. isi dbHost/dbPort/dbName/dbUser/dbPass sesuai server (lokal atau produksi)
+ *
+ * File Conf.php yang asli TIDAK di-commit (lihat .gitignore) karena berisi
+ * password database. Ini juga sebabnya deploy tidak pernah menimpa config
+ * produksi: git hanya tahu file contoh ini.
+ *
+ * Catatan produksi (172.16.5.206): MySQL di host yang sama dengan aplikasi,
+ * jadi dbHost = 127.0.0.1 (bukan IP server).
+ */
+
+class Conf
+{
+    private string $dbHost;
+    private string $dbPort;
+    private string $dbName;
+    private string $dbUser;
+    private string $dbPass;
+
+    public function __construct()
+    {
+        $this->dbHost = '127.0.0.1';
+        $this->dbPort = '3306';
+        if (defined('ENVIRONMENT') && ENVIRONMENT == 'test') {
+            $prefix = defined('TEST_DB_PREFIX') ? TEST_DB_PREFIX : '';
+            $this->dbName = $prefix . 'test_orangehrm';
+        } else {
+            $this->dbName = 'orangehrm';
+        }
+        $this->dbUser = 'ISI_USER_DB';
+        $this->dbPass = 'ISI_PASSWORD_DB';
+    }
+
+    public function getDbHost(): string
+    {
+        return $this->dbHost;
+    }
+
+    public function getDbPort(): string
+    {
+        return $this->dbPort;
+    }
+
+    public function getDbName(): string
+    {
+        return $this->dbName;
+    }
+
+    public function getDbUser(): string
+    {
+        return $this->dbUser;
+    }
+
+    public function getDbPass(): string
+    {
+        return $this->dbPass;
+    }
+}
