@@ -57,7 +57,7 @@ class GoogleSSOLoginController extends AbstractController implements PublicContr
         $session = $this->getContainer()->get(Services::SESSION);
         $session->set('google_sso_state', $state);
 
-        $authUrl = $ssoService->buildAuthorizationUrl($state, $request);
+        $authUrl = $ssoService->buildAuthorizationUrl($state, $request, $ssoService->getLastLoginHint());
         return new RedirectResponse($authUrl);
     }
 

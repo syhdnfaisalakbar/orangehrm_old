@@ -39,5 +39,17 @@ return [
         'client_secret'        => 'ISI_CLIENT_SECRET',
         'redirect_uri'         => 'https://DOMAIN-PRODUKSI/web/auth/google/callback',
         'allowed_email_domain' => 'aditya.co.id',
+
+        // 'select_account' = selalu tampilkan layar pilih akun,
+        // 'none'           = login senyap tanpa UI,
+        // ''               = biarkan Google memutuskan.
+        'prompt'               => 'select_account',
+
+        // Batasi daftar akun ke satu domain Workspace (mis. 'aditya.co.id').
+        // '' = semua domain Google.
+        'hd'                   => 'aditya.co.id',
+
+        // Sorot email terakhir yang berhasil SSO (login_hint).
+        'login_hint_enabled'   => true,
     ],
 ];

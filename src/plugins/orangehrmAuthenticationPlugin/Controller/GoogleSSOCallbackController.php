@@ -160,6 +160,10 @@ class GoogleSSOCallbackController extends AbstractController implements PublicCo
         $this->getAuthUser()->setIsAuthenticated(true);
         $session->migrate(true);
 
+        // Ingat email terakhir supaya login berikutnya langsung tersorot
+        // di layar pilih akun Google (login_hint).
+        $ssoService->rememberLastEmail($email);
+
         $homePagePath = $this->getHomePageService()->getHomePagePath();
         return $this->redirect($homePagePath);
     }

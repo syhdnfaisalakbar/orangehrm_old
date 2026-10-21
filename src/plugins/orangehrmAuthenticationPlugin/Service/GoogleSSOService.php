@@ -35,6 +35,18 @@ use OrangeHRM\Framework\Http\Request;
  */
 class GoogleSSOService
 {
+    /**
+     * Cookie berisi email terakhir yang berhasil login via SSO.
+     * Dipakai sebagai login_hint supaya akun yang benar langsung tersorot
+     * di layar pilih akun Google.
+     */
+    public const COOKIE_LAST_EMAIL = 'orangehrm_sso_last_email';
+
+    /**
+     * Umur cookie email terakhir: 1 tahun.
+     */
+    private const COOKIE_LAST_EMAIL_TTL = 31536000;
+
     private ?array $config = null;
 
     /**
@@ -71,6 +83,48 @@ class GoogleSSOService
     }
 
     /**
+     * Email terakhir yang berhasil login SSO (dari cookie), untuk login_hint.
+     * Mengembalikan '' kalau tidak ada / tidak valid.
+     */
+    public function getLastLoginHint(): string
+    {
+        if (empty($this->getConfig()['login_hint_enabled'])) {
+            return '';
+        }
+        $email = strtolower(trim((string)($_COOKIE[self::COOKIE_LAST_EMAIL] ?? '')));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return '';
+        }
+        return $email;
+    }
+
+    /**
+     * Simpan email yang berhasil login supaya login berikutnya bisa langsung
+     * disorot di layar pilih akun Google (login_hint).
+     */
+    public function rememberLastEmail(string $email): void
+    {
+        $email = strtolower(trim($email));
+        if (empty($this->getConfig()['login_hint_enabled'])) {
+            return;
+        }
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        $secure = !empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off';
+        setcookie(self::COOKIE_LAST_EMAIL, $email, [
+            'expires'  => time() + self::COOKIE_LAST_EMAIL_TTL,
+            'path'     => '/',
+            'secure'   => $secure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        // Supaya langsung terbaca di request yang sama (tanpa menunggu reload).
+        $_COOKIE[self::COOKIE_LAST_EMAIL] = $email;
+    }
+
+    /**
      * Redirect URI — pakai nilai konfigurasi, atau auto-detect dari request
      * kalau konfigurasi kosong.
      * @param Request|null $request
@@ -92,12 +146,23 @@ class GoogleSSOService
 
     /**
      * Bangun URL otorisasi Google (langkah pertama: redirect user ke sini).
+     *
+     * Parameter opsional yang ikut dikirim hanya kalau di-set di config:
+     *  - prompt     : 'select_account' = selalu tampilkan pilih akun,
+     *                 'none'           = login senyap tanpa UI
+     *  - hd         : batasi daftar akun ke satu domain Workspace
+     *  - login_hint : sorot email tertentu (email terakhir yang sukses SSO)
+     *
      * @param string $state estado anti-CSRF
      * @param Request|null $request
+     * @param string $loginHint email yang ingin disorot di layar pilih akun
      * @return string
      */
-    public function buildAuthorizationUrl(string $state, ?Request $request = null): string
-    {
+    public function buildAuthorizationUrl(
+        string $state,
+        ?Request $request = null,
+        string $loginHint = ''
+    ): string {
         $c = $this->getConfig();
         $params = [
             'client_id'     => $this->getClientId(),
@@ -107,6 +172,25 @@ class GoogleSSOService
             'access_type'   => 'online',
             'state'         => $state,
         ];
+
+        // Selalu minta user memilih akun (aman untuk komputer bersama).
+        $prompt = trim((string)($c['prompt'] ?? ''));
+        if ($prompt !== '') {
+            $params['prompt'] = $prompt;
+        }
+
+        // Batasi layar pilih akun ke domain kantor (mis. aditya.co.id).
+        $hd = trim((string)($c['hd'] ?? ''));
+        if ($hd !== '') {
+            $params['hd'] = $hd;
+        }
+
+        // Sorot email terakhir yang berhasil login, hemat satu klik.
+        $loginHint = strtolower(trim($loginHint));
+        if ($loginHint !== '' && !empty($c['login_hint_enabled'])) {
+            $params['login_hint'] = $loginHint;
+        }
+
         return $c['google_authorization_uri'] . '?' . http_build_query($params);
     }
 

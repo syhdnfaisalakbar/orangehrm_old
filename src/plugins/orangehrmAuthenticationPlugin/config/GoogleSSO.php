@@ -53,6 +53,29 @@ return [
     // Batasi email yang boleh masuk (contoh: 'asg.co.id'). '' = semua.
     'allowed_email_domain' => (string)($__sso['allowed_email_domain'] ?? ''),
 
+    // ---------------------------------------------------------------
+    // Tampilan & pembatasan akun di sisi Google (opsional)
+    // ---------------------------------------------------------------
+    // prompt:
+    //   'select_account' = SELALU tampilkan layar pilih akun (rekomendasi
+    //                      untuk kantor / komputer bersama: user sadar akun
+    //                      mana yang dipakai).
+    //   'none'           = login senyap, tanpa UI. Kalau sesi Google user
+    //                      tidak ada, Google balas error=login_required dan
+    //                      user dikembalikan ke halaman login.
+    //   ''               = biarkan Google memutuskan (default perilaku lama).
+    'prompt'               => (string)($__sso['prompt'] ?? ''),
+
+    // hd: domain Workspace yang ditampilkan di layar pilih akun
+    // (mis. 'aditya.co.id'). Akun pribadi seperti @gmail.com tidak muncul.
+    // CATATAN: ini hanya memengaruhi tampilan Google. Penentu akhir tetap
+    // allowed_email_domain + pencocokan work email karyawan di server.
+    'hd'                   => (string)($__sso['hd'] ?? ''),
+
+    // login_hint: sorot/prefill email terakhir yang berhasil login SSO
+    // (disimpan di cookie oleh callback). Mengurangi satu langkah klik.
+    'login_hint_enabled'   => (bool)($__sso['login_hint_enabled'] ?? true),
+
     // Endpoint Google (jangan diubah kecuali diperlukan)
     'google_authorization_uri' => 'https://accounts.google.com/o/oauth2/v2/auth',
     'google_token_uri'         => 'https://oauth2.googleapis.com/token',
