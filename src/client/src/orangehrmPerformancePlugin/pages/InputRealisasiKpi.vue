@@ -209,7 +209,7 @@
                   v-model="addForm.periode"
                   type="select"
                   :label="'Periode'"
-                  :options="periodeOptions"
+                  :options="addPeriodeOptions"
                 />
               </oxd-grid-item>
             </oxd-grid>
@@ -256,7 +256,9 @@
                 </template>
                 <template v-else>
                   <label class="orangehrm-modal-label">Divisi</label>
-                  <oxd-text type="card-body">{{ editForm.divisi }}</oxd-text>
+                  <oxd-text type="card-body">{{
+                    divisiName(editForm.divisi)
+                  }}</oxd-text>
                 </template>
               </oxd-grid-item>
               <oxd-grid-item>
@@ -375,7 +377,7 @@
               v-if="!isAdmin && currentDivision"
               class="orangehrm-scope-tag"
             >
-              Anda mengisi divisi: <b>{{ currentDivision }}</b>
+              Anda mengisi divisi: <b>{{ divisiName(currentDivision) }}</b>
             </span>
           </div>
 
@@ -428,7 +430,9 @@
                       <div class="orangehrm-indikator">{{ r.indikator }}</div>
                     </td>
                     <td>
-                      <span class="orangehrm-divisi">{{ r.divisi }}</span>
+                      <span class="orangehrm-divisi">{{
+                        divisiName(r.divisi)
+                      }}</span>
                     </td>
                     <td class="orangehrm-periode">
                       {{ formatPeriode(r.periode) }}
@@ -450,6 +454,8 @@
                         type="number"
                         step="0.1"
                         placeholder="—"
+                        :disabled="inputLocked(r)"
+                        :title="inputLockHint(r)"
                       />
                     </td>
                     <td class="orangehrm-num">
@@ -467,6 +473,8 @@
                           class="oxd-input orangehrm-sumber-input"
                           placeholder="Tempel link Sumber Data"
                           autocomplete="off"
+                          :disabled="inputLocked(r)"
+                          :title="inputLockHint(r)"
                         />
                         <a
                           v-if="r.bukti"
@@ -602,6 +610,10 @@ import {
   XLSX_STYLE,
   statusStyleForColor,
 } from '../utils/xlsxReport';
+import {
+  divisiCode as divisiCodeOf,
+  divisiName as divisiNameOf,
+} from '../utils/divisi';
 
 // Validasi angka desimal untuk Target — oxd bawaan (numberShouldBeBetweenMinAndMaxValue)
 // pakai digitsOnly (/^\d+$/) sehingga menolak desimal (0.025 gagal). Rule lokal ini
@@ -616,6 +628,22 @@ const numberBetweenMinMax = (min, max) => (value) => {
 // Jumlah GRUP (divisi × periode) per halaman pada tabel Input Realisasi KPI.
 // Pagination dipotong per grup supaya baris "TOTAL BOBOT" tidak terpecah.
 const PAGE_SIZE = 4;
+
+// Nama bulan Indonesia (dipakai format periode & label jadwal penginputan).
+const MONTH_NAMES = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
 
 // Kolom file Export Excel (.xlsx) — mirror kolom tabel + kolom Satuan
 // (Target dipisah dari satuannya supaya di Excel tetap angka & bisa dijumlah).
@@ -656,6 +684,7 @@ const COMPANY_DIVISIONS = [
   'TAX',
   'PM',
 ];
+
 const statusColor = (s) => {
   if (s === null || s === undefined) return 'status-grey';
   if (s >= 100) return 'status-blue';
@@ -744,7 +773,12 @@ export default {
         : COMPANY_DIVISIONS;
     },
     divisionOptions() {
-      return this.divisionLabels.map((d, i) => ({id: i + 1, label: d}));
+      // label = nama tampilan, code = kode divisi yang disimpan di DB.
+      return this.divisionLabels.map((d, i) => ({
+        id: i + 1,
+        label: this.divisiName(d),
+        code: d,
+      }));
     },
     filterDivisionOptions() {
       return [{id: 0, label: 'Semua'}, ...this.divisionOptions];
@@ -798,8 +832,8 @@ export default {
         {id: 1, label: 'Bulanan'},
         {id: 2, label: 'Triwulan'},
         {id: 3, label: 'Semester'},
-        {id: 4, label: 'Tahunan'},
-        {id: 5, label: 'Annual'},
+        // 'Tahunan' dihapus (duplikat arti dengan 'Annual' & tidak dipakai data).
+        {id: 4, label: 'Annual'},
       ];
     },
     periodeOptions() {
@@ -808,6 +842,8 @@ export default {
       // + bulan depan, digabung semua periode yang sudah ada datanya / sudah
       // didefinisikan di setup (biar periode historis selalu tersedia).
       // 'Semua Periode' (id '') = berlaku semua periode (perilaku lama).
+      // CATATAN: daftar final untuk modal Add disaring lagi oleh
+      // addPeriodeOptions() sesuai Schedule yang dipilih.
       const now = new Date();
       const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
         2,
@@ -826,6 +862,34 @@ export default {
         .reverse()
         .map((ym) => ({id: ym, label: this.formatPeriode(ym)}));
       return [{id: '', label: 'Semua Periode'}, ...options];
+    },
+    // Label Schedule yang sedang dipilih di modal Add (bisa objek atau id).
+    addScheduleLabel() {
+      const sch = this.addForm.schedule;
+      if (sch && typeof sch === 'object') return sch.label || '';
+      const found = this.scheduleOptions.find((o) => o.id == sch);
+      return found ? found.label : '';
+    },
+    // Opsi Periode untuk modal Add, disesuaikan dengan Schedule:
+    //   Triwulan -> hanya bulan ke-3 triwulan (Maret/Juni/September/Desember)
+    //   Semester -> hanya bulan ke-6 (Juni/Desember)
+    //   lainnya  -> semua periode (perilaku lama)
+    // Untuk jadwal periodik, daftar dimulai dari bulan jadwal BERIKUTNYA
+    // (bukan 12 bulan ke belakang), supaya tidak muncul periode lampau seperti
+    // Desember 2025 saat sekarang Oktober 2026. Periode lampau tetap disertakan
+    // HANYA kalau sudah ada datanya (untuk koreksi / lihat histori).
+    // CATATAN: forwardPeriodeOptions() & existingPeriodeOptions() WAJIB di
+    // `methods` (bukan `computed`) karena dipanggil dengan parameter.
+    addPeriodeOptions() {
+      const months = this.scheduleMonths(this.addScheduleLabel);
+      const all = this.periodeOptions;
+      if (!months) return all;
+      const forward = this.forwardPeriodeOptions(months, 4);
+      const taken = new Set(forward.map((o) => o.id));
+      const existing = this.existingPeriodeOptions(months).filter(
+        (o) => !taken.has(o.id),
+      );
+      return [...forward, ...existing];
     },
     rules() {
       return {
@@ -853,7 +917,7 @@ export default {
     filteredGroups() {
       const div =
         this.applied.division && this.applied.division.label !== 'Semua'
-          ? this.applied.division.label
+          ? this.divisiCode(this.applied.division)
           : null;
       const cab =
         this.applied.cabang && this.applied.cabang.label !== 'Semua'
@@ -910,6 +974,11 @@ export default {
       if (this.pages < 1) this.currentPage = 1;
       else if (this.currentPage > this.pages) this.currentPage = this.pages;
     },
+    // Schedule diganti di modal Add -> daftar Periode menyempit, pilihan yang
+    // tidak sah (mis. 'Semua Periode' atau bulan bukan ke-3 triwulan) diganti.
+    'addForm.schedule'() {
+      this.syncAddPeriode();
+    },
   },
   mounted() {
     this.fetchData();
@@ -919,8 +988,148 @@ export default {
       const base = window.appGlobal?.baseUrl || '';
       return base.replace('/index.php', '') || '';
     },
+    // Nama tampilan divisi dari kode (DB tetap menyimpan kode: FNA, PM, SAD, ...).
+    divisiName(code) {
+      return divisiNameOf(code);
+    },
+    // Kode divisi dari opsi dropdown (atau string kode langsung).
+    divisiCode(opt) {
+      return divisiCodeOf(opt);
+    },
     locked(r) {
       return !!r.submitted;
+    },
+    // --- Jadwal penginputan (Triwulan / Semester) ---
+    // Indikator Triwulan diisi 3 bulan sekali, yaitu pada bulan ke-3 tiap
+    // triwulan: Maret, Juni, September, Desember.
+    // Indikator Semester diisi 6 bulan sekali: Juni dan Desember.
+    // Di luar jendela itu, input Achievement & Sumber Data di-disable.
+    // Admin tidak dibatasi (bisa mengisi kapan saja untuk koreksi).
+    scheduleMonths(schedule) {
+      const s = String(schedule || '')
+        .trim()
+        .toLowerCase();
+      if (s === 'triwulan') return [3, 6, 9, 12];
+      if (s === 'semester') return [6, 12];
+      // Annual: periodenya akhir tahun (Desember). Jendela input Desember–Januari
+      // (lihat rowInputWindow), karena data realisasi baru tersedia awal tahun.
+      if (s === 'annual') return [12];
+      return null; // Bulanan -> tidak dibatasi jadwal
+    },
+    monthsLabel(months) {
+      return months.map((m) => MONTH_NAMES[m - 1]).join(' / ');
+    },
+    // `count` bulan jadwal berikutnya, mulai dari bulan berjalan (kalau bulan
+    // berjalan termasuk jadwal) sampai beberapa periode ke depan.
+    // Method (bukan computed) karena dipanggil dengan parameter.
+    forwardPeriodeOptions(months, count) {
+      const out = [];
+      const now = new Date();
+      let tahun = now.getFullYear();
+      let bulan = now.getMonth() + 1;
+      for (let i = 0; i < 60 && out.length < count; i++) {
+        if (months.includes(bulan)) {
+          const ym = `${tahun}-${String(bulan).padStart(2, '0')}`;
+          out.push({id: ym, label: this.formatPeriode(ym)});
+        }
+        bulan++;
+        if (bulan > 12) {
+          bulan = 1;
+          tahun++;
+        }
+      }
+      return out;
+    },
+    // Periode yang sudah ada datanya dan bulannya termasuk jadwal (mis. baris
+    // Triwulan periode Juni 2026 yang sudah pernah dibuat).
+    existingPeriodeOptions(months) {
+      const set = new Set();
+      for (const r of this.rows) {
+        const ym = String(r.periode || '');
+        if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+        const bulan = parseInt(ym.slice(5, 7), 10);
+        if (!months.includes(bulan)) continue;
+        set.add(ym);
+      }
+      return Array.from(set)
+        .sort()
+        .reverse()
+        .map((ym) => ({id: ym, label: this.formatPeriode(ym)}));
+    },
+    // Status jendela penginputan untuk satu baris: {open, reason, future}.
+    rowInputWindow(r) {
+      const periode = String(r.periode || '');
+      const tahun = parseInt(periode.slice(0, 4), 10);
+      const bulan = parseInt(periode.slice(5, 7), 10);
+      if (!tahun || !bulan) {
+        return {open: false, reason: `Periode "${periode}" tidak valid`};
+      }
+      const now = new Date();
+      const rowKey = tahun * 100 + bulan;
+      const curKey = now.getFullYear() * 100 + (now.getMonth() + 1);
+      // Aturan umum (berlaku untuk SEMUA schedule): periode yang belum berjalan
+      // belum bisa diisi — otomatis terbuka saat bulan periode itu tiba.
+      // Contoh: periode Desember 2026 saat sekarang Oktober 2026 -> terkunci.
+      if (rowKey > curKey) {
+        return {
+          open: false,
+          future: true,
+          reason: `Periode ${this.formatPeriode(
+            periode,
+          )} belum berjalan — baru bisa diisi mulai 1 ${this.monthsLabel([
+            bulan,
+          ])} ${tahun}`,
+        };
+      }
+      const schedule = String(this.rowSchedule(r) || '').trim();
+      const months = this.scheduleMonths(schedule);
+      if (!months) return {open: true, reason: ''};
+      if (!months.includes(bulan)) {
+        return {
+          open: false,
+          reason: `Indikator ${schedule}: pengisian hanya pada ${this.monthsLabel(
+            months,
+          )} — periode ${this.formatPeriode(periode)} tidak dipakai`,
+        };
+      }
+      const open = now.getFullYear() === tahun && now.getMonth() + 1 === bulan;
+      const isAnnual = schedule.toLowerCase() === 'annual';
+      if (isAnnual) {
+        // Annual: Desember tahun periode s/d Januari tahun berikutnya.
+        const nowY = now.getFullYear();
+        const nowM = now.getMonth() + 1;
+        const openAnnual =
+          (nowY === tahun && nowM === 12) || (nowY === tahun + 1 && nowM === 1);
+        return {
+          open: openAnnual,
+          future: false,
+          reason: openAnnual
+            ? ''
+            : `Pengisian periode ${this.formatPeriode(
+                periode,
+              )} dibuka Desember ${tahun} – Januari ${tahun + 1}`,
+        };
+      }
+      return {
+        open,
+        future: false,
+        reason: open
+          ? ''
+          : `Pengisian periode ${this.formatPeriode(
+              periode,
+            )} dibuka pada ${this.monthsLabel([bulan])} ${tahun}`,
+      };
+    },
+    // true = input Achievement & Sumber Data dikunci untuk baris ini.
+    inputLocked(r) {
+      if (this.isAdmin) return false;
+      return !this.rowInputWindow(r).open;
+    },
+    inputLockHint(r) {
+      if (this.isAdmin) return 'Admin: pengisian tidak dibatasi jadwal';
+      const w = this.rowInputWindow(r);
+      if (w.open) return '';
+      return `${w.reason}. Admin tetap bisa mengisi.`;
     },
     // true bila indikator sudah terisi realisasi (skor jadi ada angka).
     hasScore(r) {
@@ -1046,22 +1255,8 @@ export default {
       if (!ym || typeof ym !== 'string') return ym || '';
       const parts = ym.split('-');
       if (parts.length !== 2) return ym;
-      const bulan = [
-        'Januari',
-        'Februari',
-        'Maret',
-        'April',
-        'Mei',
-        'Juni',
-        'Juli',
-        'Agustus',
-        'September',
-        'Oktober',
-        'November',
-        'Desember',
-      ];
       const m = parseInt(parts[1], 10);
-      const namaBulan = bulan[m - 1];
+      const namaBulan = MONTH_NAMES[m - 1];
       return namaBulan ? `${namaBulan} ${parts[0]}` : ym;
     },
     groupBobot(g) {
@@ -1158,7 +1353,7 @@ export default {
           : Number(r.realisasi);
       return [
         {v: r.indikator, s: XLSX_STYLE.CELL},
-        {v: r.divisi, s: XLSX_STYLE.CELL},
+        {v: this.divisiName(r.divisi), s: XLSX_STYLE.CELL},
         {v: this.formatPeriode(r.periode), s: XLSX_STYLE.CELL},
         {v: r.cabang || 'HO', s: XLSX_STYLE.CELL},
         {v: Number(this.rowBobot(r)) || 0, s: XLSX_STYLE.NUM},
@@ -1225,17 +1420,22 @@ export default {
       }
     },
     async save(flag) {
+      // Baris yang input-nya dikunci jadwal (Triwulan/Semester di luar jendela
+      // penginputan) TIDAK ikut dikirim, supaya nilai lama di DB tidak tertimpa
+      // oleh angka yang tampil di layar.
       const payload = {
         emp: this.empNumber,
         submit: flag,
-        rows: this.rows.map((r) => ({
-          setup_id: r.setup_id,
-          divisi: r.divisi,
-          cabang: r.cabang || '',
-          periode: r.periode,
-          realisasi: r.realisasi,
-          bukti: r.bukti,
-        })),
+        rows: this.rows
+          .filter((r) => !this.inputLocked(r))
+          .map((r) => ({
+            setup_id: r.setup_id,
+            divisi: r.divisi,
+            cabang: r.cabang || '',
+            periode: r.periode,
+            realisasi: r.realisasi,
+            bukti: r.bukti,
+          })),
       };
       try {
         const res = await fetch(
@@ -1450,8 +1650,17 @@ export default {
         target: null,
         bobot: null,
         schedule: this.scheduleOptions[0] || null,
-        periode: this.periodeOptions[0] || null,
+        periode: this.addPeriodeOptions[0] || null,
       };
+    },
+    // Pastikan addForm.periode selalu ada di daftar opsi yang berlaku.
+    syncAddPeriode() {
+      const opts = this.addPeriodeOptions;
+      const cur = this.addForm.periode;
+      const curId = cur && typeof cur === 'object' ? cur.id : cur;
+      if (!opts.some((o) => String(o.id) === String(curId))) {
+        this.addForm.periode = opts[0] || null;
+      }
     },
     async onAddSubmit() {
       const f = this.addForm;
@@ -1459,6 +1668,7 @@ export default {
         f.division && typeof f.division === 'object'
           ? f.division
           : this.divisionOptions.find((o) => o.id == f.division) ||
+            this.divisionOptions.find((o) => o.code === f.division) ||
             this.divisionOptions.find((o) => o.label === f.division);
       const sch =
         f.schedule && typeof f.schedule === 'object'
@@ -1485,7 +1695,7 @@ export default {
       }
       const body = {
         emp: this.empNumber,
-        divisi: div.label,
+        divisi: this.divisiCode(div),
         cabang: cab && cab.label !== 'HO' ? cab.label : '',
         periode: per && per.id ? per.id : null,
         indikator: f.indikator,
@@ -1526,7 +1736,8 @@ export default {
         Monthly: 'Bulanan',
         Quarterly: 'Triwulan',
         Semester: 'Semester',
-        Yearly: 'Tahunan',
+        // 'Tahunan' sudah tidak ada di dropdown -> arahkan ke 'Annual'.
+        Yearly: 'Annual',
       };
       const label = map[s] || s;
       return (
@@ -1543,7 +1754,9 @@ export default {
         // Opsi divisi utk dropdown edit (ADMIN saja). Untuk non-admin tetap
         // dipakai divisi string read-only.
         division:
-          this.divisionOptions.find((o) => o.label === r.divisi) || null,
+          this.divisionOptions.find((o) => o.code === r.divisi) ||
+          this.divisionOptions.find((o) => o.label === r.divisi) ||
+          null,
         cabang: r.cabang || 'HO',
         bobot: d ? d.bobot : r.bobot,
         target: d ? d.target : r.target,
@@ -1616,7 +1829,7 @@ export default {
         this.isAdmin && f.division && typeof f.division === 'object'
           ? f.division
           : null;
-      const divisi = dOpt ? dOpt.label : f.divisi;
+      const divisi = dOpt ? this.divisiCode(dOpt) : f.divisi;
       if (!f.setup_id || !f.indikator || !divisi) {
         this.$toast.error('Data indikator tidak valid.');
         return;

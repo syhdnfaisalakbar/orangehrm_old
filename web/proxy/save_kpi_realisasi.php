@@ -53,6 +53,84 @@ function computeScore($lower, $target, $real) {
     return [round($s, 2), $st];
 }
 
+/**
+ * Jendela penginputan menurut Schedule indikator (validasi SERVER, cermin dari
+ * aturan di InputRealisasiKpi.vue — supaya tidak bisa diakali lewat request manual).
+ *
+ *  - Triwulan : hanya bulan ke-3 tiap triwulan -> Maret, Juni, September, Desember
+ *  - Semester : hanya bulan ke-6 tiap semester -> Juni, Desember
+ *  - lainnya  : tidak dibatasi
+ *
+ * Baris boleh diisi hanya kalau bulan pada `periode` termasuk bulan jadwal DAN
+ * bulan itu sedang berjalan (tahun & bulan sama dengan hari ini, WIB).
+ *
+ * @return array{open: bool, reason: string}
+ */
+function scheduleInputWindow(string $schedule, string $periode, ?DateTimeImmutable $now = null): array {
+    $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Jakarta'));
+
+    if (!preg_match('/^(\d{4})-(\d{2})$/', $periode, $m)) {
+        return ['open' => false, 'reason' => "Periode '$periode' tidak valid"];
+    }
+    $tahun = (int)$m[1];
+    $bulan = (int)$m[2];
+
+    // Aturan umum (SEMUA schedule): periode yang belum berjalan belum bisa diisi.
+    // Otomatis terbuka saat bulan periode itu tiba. Contoh: periode 2026-12 saat
+    // sekarang 2026-10 -> ditolak.
+    $rowKey = $tahun * 100 + $bulan;
+    $nowKey = (int)$now->format('Y') * 100 + (int)$now->format('n');
+    if ($rowKey > $nowKey) {
+        return [
+            'open'   => false,
+            'reason' => "Periode $periode belum berjalan (baru bisa diisi mulai bulan tersebut)",
+        ];
+    }
+
+    $s = strtolower(trim($schedule));
+    if ($s === 'triwulan') {
+        $months = [3, 6, 9, 12];
+    } elseif ($s === 'semester') {
+        $months = [6, 12];
+    } elseif ($s === 'annual') {
+        // Annual: periode akhir tahun (Desember), jendela input Desember - Januari.
+        $months = [12];
+    } else {
+        return ['open' => true, 'reason' => ''];
+    }
+
+    if (!in_array($bulan, $months, true)) {
+        return [
+            'open'   => false,
+            'reason' => "Indikator $schedule: periode $periode tidak dipakai "
+                . '(pengisian hanya pada bulan ke-3 triwulan / ke-6 semester / akhir tahun)',
+        ];
+    }
+
+    $nowY = (int)$now->format('Y');
+    $nowM = (int)$now->format('n');
+    if ($s === 'annual') {
+        $openAnnual = ($nowY === $tahun && $nowM === 12)
+            || ($nowY === $tahun + 1 && $nowM === 1);
+        if (!$openAnnual) {
+            $next = $tahun + 1;
+            return [
+                'open'   => false,
+                'reason' => "Indikator Annual: periode $periode bisa diisi Desember $tahun - Januari $next",
+            ];
+        }
+        return ['open' => true, 'reason' => ''];
+    }
+
+    if ($nowY !== $tahun || $nowM !== $bulan) {
+        return [
+            'open'   => false,
+            'reason' => "Indikator $schedule: periode $periode hanya bisa diisi pada bulan tersebut",
+        ];
+    }
+    return ['open' => true, 'reason' => ''];
+}
+
 function kpiScope(PDO $pdo, int $emp): array {
     $isAdmin = false;
     if ($emp > 0) {
@@ -104,7 +182,7 @@ try {
             approval_status = IF(VALUES(submitted) = 1, 'Menunggu', approval_status),
             updated_at = CURRENT_TIMESTAMP"
     );
-    $getSetup = $pdo->prepare("SELECT target, lower_better AS `lower`, divisi, cabang FROM ohrm_kpi_setup WHERE id = ?");
+    $getSetup = $pdo->prepare("SELECT target, lower_better AS `lower`, divisi, cabang, schedule FROM ohrm_kpi_setup WHERE id = ?");
 
     // History Achievement: pembaca nilai lama + penulis riwayat perubahan.
     $getOld = $pdo->prepare(
@@ -118,6 +196,7 @@ try {
 
     $saved = 0;
     $skippedEmpty = 0;
+    $skippedJadwal = 0;
     $errors = [];
     foreach ($data['rows'] as $row) {
         $setupId = (int)($row['setup_id'] ?? 0);
@@ -150,6 +229,17 @@ try {
         if ($setupCabang !== '' && $cabang !== $setupCabang) {
             $errors[] = "Indikator ($setupId) khusus cabang '$setupCabang', tidak boleh diisi utk cabang '$cabang'.";
             continue;
+        }
+
+        // Jadwal penginputan: Triwulan (3 bulan sekali) & Semester (6 bulan sekali).
+        // Non-admin hanya boleh mengisi baris yang periodenya jatuh pada bulan
+        // jadwal DAN bulan itu sedang berjalan. Admin dikecualikan (koreksi).
+        if (!$isAdmin) {
+            $win = scheduleInputWindow((string)($s['schedule'] ?? ''), $periode);
+            if (!$win['open']) {
+                $skippedJadwal++;
+                continue;
+            }
         }
 
         // Submit hanya untuk baris yang terisi; baris kosong tidak dikunci
@@ -208,8 +298,9 @@ try {
 
     $msg = ($submitted ? 'Diajukan ke verifikasi' : 'Draft disimpan') . " ($saved indikator)";
     if ($submitted && $skippedEmpty > 0) $msg .= ", $skippedEmpty baris kosong dilewati";
+    if ($skippedJadwal > 0) $msg .= ", $skippedJadwal baris di luar jadwal penginputan dilewati";
     if (!empty($errors)) $msg .= ". " . implode(' | ', array_slice($errors, 0, 5));
-    echo json_encode(['status'=>'success','message'=>$msg,'saved'=>$saved,'skippedEmpty'=>$skippedEmpty,'errors'=>$errors]);
+    echo json_encode(['status'=>'success','message'=>$msg,'saved'=>$saved,'skippedEmpty'=>$skippedEmpty,'skippedJadwal'=>$skippedJadwal,'errors'=>$errors]);
 } catch (Exception $e) {
     echo json_encode(['status'=>'error','message'=>'Gagal menyimpan: '.$e->getMessage()]);
 }

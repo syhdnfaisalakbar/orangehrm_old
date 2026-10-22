@@ -216,7 +216,9 @@
             <tbody>
               <tr v-for="s in summaryRows" :key="s.divisi">
                 <td>
-                  <span class="orangehrm-divisi">{{ s.divisi }}</span>
+                  <span class="orangehrm-divisi">{{
+                    divisiName(s.divisi)
+                  }}</span>
                 </td>
                 <td class="orangehrm-num">
                   <span :class="skorClass(s.avgSkor)">{{
@@ -337,6 +339,7 @@
 <script>
 import {OxdDialog} from '@ohrm/oxd';
 import {buildGroupedTablePdf} from '../utils/kpiReportPdf';
+import {divisiName as divisiNameOf} from '../utils/divisi';
 import {OxdBarChart} from '@ohrm/oxd';
 import Swal from 'sweetalert2';
 
@@ -473,13 +476,13 @@ export default {
       this.rows.forEach((r) => r.divisi && set.add(r.divisi));
       const divisiList = Array.from(set)
         .sort()
-        .map((d) => ({id: d, label: d}));
+        .map((d) => ({id: d, label: this.divisiName(d)}));
       // ESS (non-admin): dropdown HANYA divisi mapping user, tanpa "Semua Divisi".
       if (!this.isAdmin) {
         const target = divisiList.find((o) => o.id === this.currentDivision) ||
           divisiList[0] || {
             id: this.currentDivision,
-            label: this.currentDivision,
+            label: this.divisiName(this.currentDivision),
           };
         return [target];
       }
@@ -662,6 +665,10 @@ export default {
     this.fetchData();
   },
   methods: {
+    // Nama tampilan divisi (nilai DB tetap kode: FNA, PM, SAD, ...).
+    divisiName(code) {
+      return divisiNameOf(code);
+    },
     // Susun busur dome kiri(180°)→atas(90°)→kanan(0°) sbg polyline (dialamatkan
     // hanya dari computed gauge — dipanggil dengan argumen eksplisit).
     buildArc(value, r) {
@@ -685,7 +692,7 @@ export default {
     async onClickExportPdf() {
       try {
         const rows = this.summaryRows.map((s) => [
-          s.divisi,
+          this.divisiName(s.divisi),
           this.skorDisplay(s),
           this.statusTextFor(s.avgSkor),
         ]);

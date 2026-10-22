@@ -258,7 +258,9 @@
                   <span class="orangehrm-cabang">{{ r.cabang || 'HO' }}</span>
                 </td>
                 <td>
-                  <span class="orangehrm-divisi">{{ r.divisi }}</span>
+                  <span class="orangehrm-divisi">{{
+                    divisiName(r.divisi)
+                  }}</span>
                 </td>
                 <td class="orangehrm-num">
                   <span :class="skorClass(r.skor)">{{
@@ -308,6 +310,7 @@
 <script>
 import {OxdBarChart} from '@ohrm/oxd';
 import {buildGroupedTablePdf} from '../utils/kpiReportPdf';
+import {divisiName as divisiNameOf} from '../utils/divisi';
 import {
   downloadXlsx,
   statusStyleForColor,
@@ -528,7 +531,7 @@ export default {
       this.rows.forEach((r) => r.divisi && set.add(r.divisi));
       const divisiList = Array.from(set)
         .sort()
-        .map((d) => ({id: d, label: d}));
+        .map((d) => ({id: d, label: this.divisiName(d)}));
       // Opsi "Semua Divisi" selalu pertama → juga jadi default saat halaman dibuka.
       return [{id: 'all', label: 'Semua Divisi'}, ...divisiList];
     },
@@ -714,6 +717,10 @@ export default {
     this.fetchData();
   },
   methods: {
+    // Nama tampilan divisi (nilai DB tetap kode: FNA, PM, SAD, ...).
+    divisiName(code) {
+      return divisiNameOf(code);
+    },
     // Export PDF: generate file PDF langsung dari DATA (bukan dari DOM/print
     // browser) lalu auto-download. Isi PDF = tabelnya saja (Indikator, Periode,
     // Cabang, Divisi, Skor, Status + baris total per periode) — gauge & chart
@@ -834,7 +841,7 @@ export default {
         {v: r.indikator || '', s: XLSX_STYLE.CELL},
         {v: this.formatPeriode(r.periode), s: XLSX_STYLE.CENTER},
         {v: r.cabang || 'HO', s: XLSX_STYLE.CENTER},
-        {v: r.divisi || '', s: XLSX_STYLE.CELL},
+        {v: this.divisiName(r.divisi), s: XLSX_STYLE.CELL},
         {v: skor === null ? '' : Math.round(skor * 10) / 10, s: XLSX_STYLE.PCT},
         {
           v: this.statusTextFor(r.skor),
