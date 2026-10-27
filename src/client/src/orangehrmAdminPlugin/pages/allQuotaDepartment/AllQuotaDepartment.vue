@@ -446,6 +446,11 @@
               <strong>{{ previewSummary.ok }}</strong> baris siap disimpan,
               <strong style="color: #a1281f">{{ previewSummary.error }}</strong>
               baris bermasalah (baris bermasalah dilewati).
+              <span v-if="previewSummary.existing > 0" style="color: #b45309">
+                &middot;
+                <strong>{{ previewSummary.existing }}</strong> department sudah
+                ada di database &mdash; angkanya akan <strong>ditimpa</strong>.
+              </span>
             </p>
             <div style="max-height: 320px; overflow: auto">
               <table
@@ -484,7 +489,21 @@
                       {{ r.row }}
                     </td>
                     <td style="padding: 8px">{{ r.branch || '-' }}</td>
-                    <td style="padding: 8px">{{ r.department || '-' }}</td>
+                    <td style="padding: 8px">
+                      {{ r.department || '-' }}
+                      <span
+                        v-if="r.status === 'ok' && r.exists"
+                        style="
+                          margin-left: 6px;
+                          padding: 1px 6px;
+                          border-radius: 8px;
+                          background: #fef3c7;
+                          color: #92400e;
+                          font-size: 11px;
+                        "
+                        >sudah ada</span
+                      >
+                    </td>
                     <td style="padding: 8px; text-align: center">
                       {{ r.year || '-' }}
                     </td>
@@ -589,7 +608,7 @@ export default {
       isPreviewing: false,
       isSaving: false,
       previewRows: [],
-      previewSummary: {total: 0, ok: 0, error: 0},
+      previewSummary: {total: 0, ok: 0, error: 0, existing: 0, new: 0},
       uploadError: '',
       uploadResult: '',
 
@@ -882,7 +901,7 @@ export default {
       this.selectedFileName = '';
       this.selectedFile = null;
       this.previewRows = [];
-      this.previewSummary = {total: 0, ok: 0, error: 0};
+      this.previewSummary = {total: 0, ok: 0, error: 0, existing: 0, new: 0};
       this.uploadError = '';
       this.uploadResult = '';
       const input = this.$refs.fileInput;
@@ -914,7 +933,7 @@ export default {
       this.uploadError = '';
       this.uploadResult = '';
       this.previewRows = [];
-      this.previewSummary = {total: 0, ok: 0, error: 0};
+      this.previewSummary = {total: 0, ok: 0, error: 0, existing: 0, new: 0};
 
       if (!file) {
         this.selectedFileName = '';
@@ -964,6 +983,8 @@ export default {
           total: this.previewRows.length,
           ok: 0,
           error: 0,
+          existing: 0,
+          new: 0,
         };
       } catch (error) {
         console.error('Gagal preview upload kuota:', error);
@@ -987,6 +1008,32 @@ export default {
       if (rows.length === 0) {
         this.uploadError = 'Tidak ada baris valid untuk disimpan.';
         return;
+      }
+
+      // Peringatan sebelum menimpa: upload bersifat MENGGANTI, bukan menambah.
+      const menimpa = this.previewRows.filter(
+        (r) => r.status === 'ok' && r.exists,
+      );
+      if (menimpa.length > 0) {
+        const daftar = menimpa
+          .slice(0, 10)
+          .map(
+            (r) =>
+              `- ${r.department} ${r.year}: ${r.current_planned || 0} -> ${
+                r.total_person
+              }`,
+          )
+          .join('\n');
+        const lebih = menimpa.length - 10;
+        const pesan =
+          `${menimpa.length} department sudah ada di database dan angkanya ` +
+          `akan DITIMPA:\n\n${daftar}` +
+          (lebih > 0 ? `\n- ... dan ${lebih} department lain` : '') +
+          '\n\nLanjutkan simpan?';
+        // eslint-disable-next-line no-alert
+        if (!window.confirm(pesan)) {
+          return;
+        }
       }
 
       this.isSaving = true;

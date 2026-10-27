@@ -102,9 +102,22 @@ try {
     $pdo->beginTransaction();
     $savedRows = 0;
     $savedTotal = 0;
+    $replacedRows = 0;
     $affectedDepts = [];
 
+    // Deteksi "sudah ada" sebelum menulis, supaya notifikasi bisa menyebut berapa
+    // baris yang MENIMPA data lama (rowCount() ON DUPLICATE KEY tidak bisa membedakan
+    // insert / update-tanpa-perubahan).
+    $stmtExists = $pdo->prepare(
+        'SELECT 1 FROM ohrm_ext_department_quota
+          WHERE TRIM(dept_name) = :dept AND year = :year
+          LIMIT 1'
+    );
+
     foreach ($accepted as $row) {
+        $stmtExists->execute([':dept' => $row['department'], ':year' => $row['year']]);
+        $alreadyExists = (bool) $stmtExists->fetchColumn();
+
         $stmt->execute([
             ':dept' => $row['department'],
             ':year' => $row['year'],
@@ -113,17 +126,22 @@ try {
         ]);
         $savedRows++;
         $savedTotal += (int) $row['total_person'];
+        if ($alreadyExists) {
+            $replacedRows++;
+        }
         $affectedDepts[mb_strtolower($row['department']) . '|' . $row['year']] = true;
     }
 
     $pdo->commit();
 
     $log = sprintf(
-        "[%s] user=%s file=%s baris=%d total_person=%d dept=%d ip=%s\n",
+        "[%s] user=%s file=%s baris=%d baru=%d timpa=%d total_person=%d dept=%d ip=%s\n",
         date('Y-m-d H:i:s'),
         $userName,
         $fileName !== '' ? $fileName : '(tanpa nama)',
         $savedRows,
+        $savedRows - $replacedRows,
+        $replacedRows,
         $savedTotal,
         count($affectedDepts),
         $_SERVER['REMOTE_ADDR'] ?? '-'
@@ -132,8 +150,15 @@ try {
 
     echo json_encode([
         'status' => 'success',
-        'message' => sprintf('%d baris tersimpan (%d department/tahun).', $savedRows, count($affectedDepts)),
+        'message' => sprintf(
+            '%d baris tersimpan: %d baru, %d menimpa data lama.',
+            $savedRows,
+            $savedRows - $replacedRows,
+            $replacedRows
+        ),
         'saved_rows' => $savedRows,
+        'new_rows' => $savedRows - $replacedRows,
+        'replaced_rows' => $replacedRows,
         'saved_total_person' => $savedTotal,
         'departments' => count($affectedDepts),
         'skipped' => $errors,

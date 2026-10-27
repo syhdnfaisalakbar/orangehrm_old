@@ -97,6 +97,7 @@ try {
         $row['current_planned'] = 0;
         $row['current_manual'] = 0; // nama lama, dipertahankan agar bundle lama tidak rusak
         $row['current_total_additional'] = 0;
+        $row['exists'] = false;     // true = dept+tahun ini sudah ada di DB -> upload akan menimpa
 
         if ($row['status'] !== 'ok') {
             continue;
@@ -104,6 +105,7 @@ try {
         $stmtBase->execute([':dept' => $row['department'], ':year' => $row['year']]);
         $base = $stmtBase->fetch(PDO::FETCH_ASSOC);
         if ($base) {
+            $row['exists'] = true;
             $row['current_planned'] = (int) $base['planned'];
             $row['current_manual'] = (int) $base['planned'];
             $row['current_total_additional'] = (int) $base['total_additional'];
@@ -116,9 +118,13 @@ try {
 }
 
 $okCount = 0;
+$existingCount = 0;
 foreach ($results as $r) {
     if ($r['status'] === 'ok') {
         $okCount++;
+        if (!empty($r['exists'])) {
+            $existingCount++;
+        }
     }
 }
 
@@ -129,6 +135,8 @@ echo json_encode([
         'total' => count($results),
         'ok' => $okCount,
         'error' => count($results) - $okCount,
+        'existing' => $existingCount,   // baris valid yang akan MENIMPA data lama
+        'new' => $okCount - $existingCount,
     ],
     'rows' => $results,
 ]);
