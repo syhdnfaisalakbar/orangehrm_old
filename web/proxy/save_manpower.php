@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_quota_approved.php';
 //
 // save_manpower.php
 //
@@ -276,12 +277,17 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                          WHERE TRIM(dept_name) = :dept AND year = :yr"
                     );
                     $stmtQuota->execute([':dept' => $chkDept, ':yr' => $chkYr]);
-                    $quotaPlanned = (int) $stmtQuota->fetchColumn();
+                    $quotaUpload = (int) $stmtQuota->fetchColumn();
+
+                    // Kapasitas = planned (upload Excel) + approved (HRPLAN Acumatica)
+                    $quotaApproved = quota_approved_for($pdo, $chkDept, $chkYr);
+                    $quotaPlanned = $quotaUpload + $quotaApproved;
 
                     if ($sumPlanned > $quotaPlanned) {
                         $overQuota[] = 'Case ' . $case['caseId'] . ' melebihi quota planned ('
                             . $chkDept . ' ' . $chkYr . ': dipakai ' . $sumPlanned
-                            . ' > kuota ' . $quotaPlanned . ')';
+                            . ' > kuota ' . $quotaPlanned
+                            . ' = upload ' . $quotaUpload . ' + HRPLAN ' . $quotaApproved . ')';
                         continue; // TIDAK disimpan ke DB
                     }
                 }

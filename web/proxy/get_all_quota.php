@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_quota_approved.php';
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -16,12 +17,17 @@ try {
     //   planned_upload   -> kolom `planned` di ohrm_ext_department_quota (hasil upload Excel)
     //   planned_approved -> SUM TOTPERSON case yang approval terakhirnya 'Completed'
     //   planned          -> planned_upload + planned_approved (angka yang tampil di UI)
-    //   sisa             -> planned_upload - planned_approved
-    //                       (kuota hasil upload - yang sudah terpakai). Sejak 2026-10-27
-    //                       total_additional (sync Acumatica) TIDAK dipakai di hitungan;
-    //                       kolomnya tetap ada & tetap diisi sync, hanya tidak dipakai.
+    //   sisa             -> (planned_upload + planned_approved) - fptk_used
+    //                       kapasitas (upload Excel + HRPLAN approved) dikurangi FPTK Planned
+    //                       yang sudah terpakai. Sejak 2026-10-27 approved HRPLAN dihitung
+    //                       sebagai KAPASITAS (bukan pemakaian) dan total_additional (sync
+    //                       Acumatica) tidak dipakai di hitungan.
     //
     // Branch (berurutan): approved Acumatica -> branch departemen -> branch dari upload -> '-'
+    // Definisi "kuota approved" dipusatkan di _quota_approved.php. Subquery `approved`
+    // di bawah tetap ada khusus untuk kolom BRANCH (dikelompokkan per branch).
+    $APPROVED_SQL = quota_approved_subquery();
+
     $stmt = $pdo->query("
         SELECT
             q.id,
@@ -30,17 +36,33 @@ try {
             TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(q.branch), ''), '-')) AS branch,
             COALESCE(q.total_additional, 0) AS total_additional,
             COALESCE(q.planned, 0) AS planned_upload,
-            COALESCE(approved.planned_count, 0) AS planned_approved,
-            (COALESCE(q.planned, 0) + COALESCE(approved.planned_count, 0)) AS planned,
+            COALESCE(approved_total.planned_count, 0) AS planned_approved,
+            (COALESCE(q.planned, 0) + COALESCE(approved_total.planned_count, 0)) AS planned,
             COALESCE(q.replacement, 0) AS replacement,
             COALESCE(q.reduction, 0) AS reduction,
             COALESCE(q.unplanned, 0) AS unplanned,
-            (COALESCE(q.planned, 0) - COALESCE(approved.planned_count, 0)) AS sisa
+            COALESCE(fptk.used_count, 0) AS fptk_used,
+            ((COALESCE(q.planned, 0) + COALESCE(approved_total.planned_count, 0))
+             - COALESCE(fptk.used_count, 0)) AS sisa
         FROM (
             SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota
         ) k
         LEFT JOIN ohrm_ext_department_quota q
                ON TRIM(q.dept_name) = k.dept_name AND q.year = k.year
+        LEFT JOIN ( {$APPROVED_SQL} ) approved_total
+               ON approved_total.dept_name = k.dept_name AND approved_total.yr = k.year
+        LEFT JOIN (
+            -- FPTK (manpower request) Planned yang sudah dipakai = pemakaian kuota.
+            -- Revisi 2026-10-27: approved HRPLAN sekarang dihitung sebagai KAPASITAS,
+            -- jadi Sisa = (planned upload + approved HRPLAN) - FPTK Planned terpakai.
+            SELECT TRIM(mr.department) AS dept_name,
+                   YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at)) AS yr,
+                   SUM(COALESCE(mr.tot_person, 0)) AS used_count
+            FROM ohrm_manpower_request mr
+            WHERE UPPER(COALESCE(mr.req_type, '')) = 'PLANNED'
+              AND COALESCE(mr.status, '') <> 'Rejected'
+            GROUP BY TRIM(mr.department), YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at))
+        ) fptk ON fptk.dept_name = k.dept_name AND fptk.yr = k.year
         LEFT JOIN (
             SELECT
                 TRIM(attr_dept.attribute_value) AS dept_name,
@@ -87,7 +109,7 @@ try {
     foreach ($data as &$row) {
         foreach ([
             'total_additional', 'planned', 'planned_upload', 'planned_approved',
-            'replacement', 'reduction', 'unplanned', 'sisa',
+            'replacement', 'reduction', 'unplanned', 'fptk_used', 'sisa',
         ] as $numCol) {
             $row[$numCol] = (int) $row[$numCol];
         }

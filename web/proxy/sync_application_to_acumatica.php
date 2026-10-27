@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_quota_approved.php';
 
 /**
  * Sync Application Data to Acumatica Cases
@@ -54,18 +55,21 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
                     AND (mm.case_id = vv.case_id
                          OR CAST(mm.case_id AS UNSIGNED) = CAST(vv.case_id AS UNSIGNED)))";
 
+    $approvedSql = quota_approved_subquery();
+
     $sql = "
         SELECT
             m.dept_name,
             :year AS year,
             /* quota_akhir — disamakan dengan layar Resource Fulfillments
                (get_resource_fulfillment.php, revisi 2026-10-27):
-                 ada baris kuota  -> planned + replacement + unplanned - reduction
+                 ada baris kuota  -> planned(upload) + approved(HRPLAN) + replacement
+                                     + unplanned - reduction
                  belum ada baris  -> fallback SUM(tot_person) MPR yang approval
                                      terakhirnya Completed/Approved
                total_additional (sync Acumatica) tidak dipakai lagi. */
             (CASE WHEN qq.id IS NULL THEN COALESCE(mpr.quota_sum, 0)
-                  ELSE (COALESCE(qq.planned, 0)
+                  ELSE (COALESCE(qq.planned, 0) + COALESCE(approved.planned_count, 0)
                         + COALESCE(qq.replacement, 0) + COALESCE(qq.unplanned, 0)
                         - COALESCE(qq.reduction, 0))
              END) AS quota_akhir,
@@ -108,6 +112,8 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
                    COALESCE(reduction, 0)   AS reduction
             FROM ohrm_ext_department_quota
         ) qq ON qq.dept_name = m.dept_name AND qq.year = :year
+        LEFT JOIN ( {$approvedSql} ) approved
+               ON approved.dept_name = m.dept_name AND approved.yr = :year
         LEFT JOIN (
             SELECT TRIM(mm.department) AS dept_name, COUNT(DISTINCT cv.candidate_id) AS hired_count
             FROM ohrm_manpower_request mm

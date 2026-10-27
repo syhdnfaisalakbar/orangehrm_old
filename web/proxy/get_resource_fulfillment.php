@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_quota_approved.php';
 /**
  * Resource Fulfillments — SDM / SLA Tracking per Department
  *
@@ -60,11 +61,15 @@ try {
     $year = isset($_GET['year']) ? intval($_GET['year']) : 0;
 
     // Ekspresi quota berulang — biar SQL di bawah lebih pendek.
-    // 2026-10-27 (revisi): total_additional TIDAK dipakai lagi di hitungan — sumber
-    // kuota sekarang kolom `planned` (upload Excel di History Quota Department).
-    // Kolom total_additional tetap ada di tabel & tetap diisi sync Acumatica,
-    // hanya tidak dipakai untuk angka di layar ini.
-    $QUOTA = '(COALESCE(q.planned, 0) + COALESCE(q.replacement, 0) + COALESCE(q.unplanned, 0) - COALESCE(q.reduction, 0))';
+    // 2026-10-27 (revisi): total_additional TIDAK dipakai lagi di hitungan.
+    // Kapasitas kuota = planned (upload Excel di History Quota Department)
+    //                 + approved (case HRPLAN Acumatica yang approval terakhirnya Completed).
+    // Kolom total_additional tetap ada di tabel & tetap diisi sync Acumatica, hanya
+    // tidak dipakai untuk angka di layar ini.
+    $QUOTA = '(COALESCE(q.planned, 0) + COALESCE(approved.planned_count, 0) + COALESCE(q.replacement, 0) + COALESCE(q.unplanned, 0) - COALESCE(q.reduction, 0))';
+
+    // Definisi "kuota approved" dipusatkan di _quota_approved.php
+    $APPROVED_SQL = quota_approved_subquery();
 
     // Hybrid (keputusan user 2026-09-09): kalau TIDAK ada baris kuota untuk
     // (dept,tahun) → quota_akhir = SUM(tot_person) MPR dept+thn itu (dari subquery
@@ -76,7 +81,7 @@ try {
             COALESCE(q.id, 0) AS id,
             s.dept_name,
             s.year,
-            COALESCE(q.planned, 0) AS planned,
+            (COALESCE(q.planned, 0) + COALESCE(approved.planned_count, 0)) AS planned,
             COALESCE(q.replacement, 0) AS replacement,
             COALESCE(q.reduction, 0) AS reduction,
             COALESCE(q.unplanned, 0) AS unplanned,
@@ -118,6 +123,8 @@ try {
         ) s
         LEFT JOIN ohrm_ext_department_quota q
             ON TRIM(q.dept_name) = s.dept_name AND q.year = s.year
+        LEFT JOIN ( {$APPROVED_SQL} ) approved
+            ON approved.dept_name = s.dept_name AND approved.yr = s.year
         LEFT JOIN (
             SELECT TRIM(mr.department) AS dept_name,
                    YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at)) AS yr,
