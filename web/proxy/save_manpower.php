@@ -242,10 +242,11 @@ function saveManpowerPayload(PDO $pdo, array $data): array
             }
 
             // ==========================================
-            // VALIDASI KUOTA PLANNED (2026-08-06, rev: tolak simpan)
+            // VALIDASI KUOTA PLANNED (2026-08-06, rev 2026-10-27)
             // Per departemen: SUM(tot_person) MPR Planned dept+tahun dibandingkan
-            // dengan kuota planned (total_additional). Kalau SUM > kuota → TIDAK
-            // disimpan (continue), dicatat di $overQuota.
+            // dengan kuota planned = total_additional (sync Acumatica) + planned
+            // (hasil upload Excel di menu History Quota Department).
+            // Kalau SUM > kuota → TIDAK disimpan (continue), dicatat di $overQuota.
             // ==========================================
             if ($isPlanned) {
                 $chkDept = trim($case['department'] ?? '');
@@ -269,16 +270,22 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                     $sumPlanned = (int)$stmtSum->fetchColumn() + (int)$case['totPerson'];
 
                     $stmtQuota = $pdo->prepare(
-                        "SELECT total_additional
+                        "SELECT COALESCE(total_additional, 0) AS total_additional,
+                                COALESCE(planned, 0) AS planned
                          FROM ohrm_ext_department_quota
                          WHERE TRIM(dept_name) = :dept AND year = :yr"
                     );
                     $stmtQuota->execute([':dept' => $chkDept, ':yr' => $chkYr]);
-                    $quotaPlanned = (int)$stmtQuota->fetchColumn();
+                    $q = $stmtQuota->fetch(PDO::FETCH_ASSOC) ?: ['total_additional' => 0, 'planned' => 0];
+                    $quotaAcumatica = (int)$q['total_additional'];
+                    $quotaUpload = (int)$q['planned'];
+                    $quotaPlanned = $quotaAcumatica + $quotaUpload;
 
                     if ($sumPlanned > $quotaPlanned) {
-                        $overQuota[] = 'Case ' . $case['caseId'] . ' melebihi dari quota planned ('
-                            . $chkDept . ': ' . $sumPlanned . ' >= ' . $quotaPlanned . ')';
+                        $overQuota[] = 'Case ' . $case['caseId'] . ' melebihi quota planned ('
+                            . $chkDept . ' ' . $chkYr . ': dipakai ' . $sumPlanned
+                            . ' > kuota ' . $quotaPlanned
+                            . ' = Acumatica ' . $quotaAcumatica . ' + upload ' . $quotaUpload . ')';
                         continue; // TIDAK disimpan ke DB
                     }
                 }
