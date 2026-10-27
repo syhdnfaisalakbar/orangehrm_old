@@ -244,8 +244,9 @@ function saveManpowerPayload(PDO $pdo, array $data): array
             // ==========================================
             // VALIDASI KUOTA PLANNED (2026-08-06, rev 2026-10-27)
             // Per departemen: SUM(tot_person) MPR Planned dept+tahun dibandingkan
-            // dengan kuota planned = total_additional (sync Acumatica) + planned
+            // dengan kuota planned = kolom `planned` di ohrm_ext_department_quota
             // (hasil upload Excel di menu History Quota Department).
+            // total_additional (sync Acumatica) TIDAK dipakai lagi (revisi 2026-10-27).
             // Kalau SUM > kuota → TIDAK disimpan (continue), dicatat di $overQuota.
             // ==========================================
             if ($isPlanned) {
@@ -270,22 +271,17 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                     $sumPlanned = (int)$stmtSum->fetchColumn() + (int)$case['totPerson'];
 
                     $stmtQuota = $pdo->prepare(
-                        "SELECT COALESCE(total_additional, 0) AS total_additional,
-                                COALESCE(planned, 0) AS planned
+                        "SELECT COALESCE(planned, 0) AS planned
                          FROM ohrm_ext_department_quota
                          WHERE TRIM(dept_name) = :dept AND year = :yr"
                     );
                     $stmtQuota->execute([':dept' => $chkDept, ':yr' => $chkYr]);
-                    $q = $stmtQuota->fetch(PDO::FETCH_ASSOC) ?: ['total_additional' => 0, 'planned' => 0];
-                    $quotaAcumatica = (int)$q['total_additional'];
-                    $quotaUpload = (int)$q['planned'];
-                    $quotaPlanned = $quotaAcumatica + $quotaUpload;
+                    $quotaPlanned = (int) $stmtQuota->fetchColumn();
 
                     if ($sumPlanned > $quotaPlanned) {
                         $overQuota[] = 'Case ' . $case['caseId'] . ' melebihi quota planned ('
                             . $chkDept . ' ' . $chkYr . ': dipakai ' . $sumPlanned
-                            . ' > kuota ' . $quotaPlanned
-                            . ' = Acumatica ' . $quotaAcumatica . ' + upload ' . $quotaUpload . ')';
+                            . ' > kuota ' . $quotaPlanned . ')';
                         continue; // TIDAK disimpan ke DB
                     }
                 }

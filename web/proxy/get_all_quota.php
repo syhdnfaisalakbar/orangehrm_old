@@ -16,8 +16,10 @@ try {
     //   planned_upload   -> kolom `planned` di ohrm_ext_department_quota (hasil upload Excel)
     //   planned_approved -> SUM TOTPERSON case yang approval terakhirnya 'Completed'
     //   planned          -> planned_upload + planned_approved (angka yang tampil di UI)
-    //   sisa             -> total_additional + planned_upload - planned_approved
-    //                       (kuota dari Acumatica + kuota hasil upload - yang sudah terpakai)
+    //   sisa             -> planned_upload - planned_approved
+    //                       (kuota hasil upload - yang sudah terpakai). Sejak 2026-10-27
+    //                       total_additional (sync Acumatica) TIDAK dipakai di hitungan;
+    //                       kolomnya tetap ada & tetap diisi sync, hanya tidak dipakai.
     //
     // Branch (berurutan): approved Acumatica -> branch departemen -> branch dari upload -> '-'
     $stmt = $pdo->query("
@@ -33,7 +35,7 @@ try {
             COALESCE(q.replacement, 0) AS replacement,
             COALESCE(q.reduction, 0) AS reduction,
             COALESCE(q.unplanned, 0) AS unplanned,
-            (COALESCE(q.total_additional, 0) + COALESCE(q.planned, 0) - COALESCE(approved.planned_count, 0)) AS sisa
+            (COALESCE(q.planned, 0) - COALESCE(approved.planned_count, 0)) AS sisa
         FROM (
             SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota
         ) k

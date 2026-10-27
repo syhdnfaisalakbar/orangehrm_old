@@ -60,12 +60,12 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
             :year AS year,
             /* quota_akhir — disamakan dengan layar Resource Fulfillments
                (get_resource_fulfillment.php, revisi 2026-10-27):
-                 ada baris kuota  -> total_additional + planned(upload) + replacement
-                                     + unplanned - reduction
+                 ada baris kuota  -> planned + replacement + unplanned - reduction
                  belum ada baris  -> fallback SUM(tot_person) MPR yang approval
-                                     terakhirnya Completed/Approved */
+                                     terakhirnya Completed/Approved
+               total_additional (sync Acumatica) tidak dipakai lagi. */
             (CASE WHEN qq.id IS NULL THEN COALESCE(mpr.quota_sum, 0)
-                  ELSE (COALESCE(qq.total_additional, 0) + COALESCE(qq.planned, 0)
+                  ELSE (COALESCE(qq.planned, 0)
                         + COALESCE(qq.replacement, 0) + COALESCE(qq.unplanned, 0)
                         - COALESCE(qq.reduction, 0))
              END) AS quota_akhir,
@@ -99,10 +99,9 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
             GROUP BY TRIM(mr.department), YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at))
         ) mpr ON mpr.dept_name = m.dept_name AND mpr.yr = :year
         LEFT JOIN (
-            -- kolom kuota dept (All Quota Department): total_additional, planned(upload),
-            -- replacement, unplanned, reduction
+            -- kolom kuota dept (All Quota Department): planned (upload),
+            -- replacement, unplanned, reduction. total_additional tidak dipakai.
             SELECT id, TRIM(dept_name) AS dept_name, year,
-                   COALESCE(total_additional, 0) AS total_additional,
                    COALESCE(planned, 0)          AS planned,
                    COALESCE(replacement, 0) AS replacement,
                    COALESCE(unplanned, 0)   AS unplanned,
