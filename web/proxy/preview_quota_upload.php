@@ -76,8 +76,8 @@ if (empty($results)) {
     $fail('Tidak ada baris data di bawah header.', 422);
 }
 
-// Info angka manual yang sekarang tersimpan, supaya UI bisa menampilkan
-// "sebelum -> sesudah". Sumbernya ledger upload (SUM per dept+tahun).
+// Info angka "Planned" yang sekarang tersimpan, supaya UI bisa menampilkan
+// "sebelum -> sesudah". Sumbernya kolom planned di ohrm_ext_department_quota.
 try {
     $pdo = new PDO(
         'mysql:host=' . PROXY_DB_HOST . ';dbname=' . PROXY_DB_NAME . ';charset=utf8',
@@ -86,32 +86,26 @@ try {
     );
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    $stmtManual = $pdo->prepare(
-        'SELECT COALESCE(SUM(total_person), 0) AS manual_total
-           FROM ohrm_ext_department_quota_manual
-          WHERE TRIM(dept_name) = :dept AND year = :year'
-    );
     $stmtBase = $pdo->prepare(
-        'SELECT total_additional
+        'SELECT COALESCE(planned, 0) AS planned, COALESCE(total_additional, 0) AS total_additional
            FROM ohrm_ext_department_quota
           WHERE TRIM(dept_name) = :dept AND year = :year
           LIMIT 1'
     );
 
     foreach ($results as &$row) {
-        $row['current_manual'] = 0;
+        $row['current_planned'] = 0;
+        $row['current_manual'] = 0; // nama lama, dipertahankan agar bundle lama tidak rusak
         $row['current_total_additional'] = 0;
-        $row['current_branch'] = null;
 
         if ($row['status'] !== 'ok') {
             continue;
         }
-        $stmtManual->execute([':dept' => $row['department'], ':year' => $row['year']]);
-        $row['current_manual'] = (int) $stmtManual->fetchColumn();
-
         $stmtBase->execute([':dept' => $row['department'], ':year' => $row['year']]);
         $base = $stmtBase->fetch(PDO::FETCH_ASSOC);
         if ($base) {
+            $row['current_planned'] = (int) $base['planned'];
+            $row['current_manual'] = (int) $base['planned'];
             $row['current_total_additional'] = (int) $base['total_additional'];
         }
     }

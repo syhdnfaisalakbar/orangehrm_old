@@ -1,30 +1,27 @@
--- Migration: tabel kuota manual hasil upload Excel (History Quota Department)
--- Tanggal: 2026-10-27
--- Sifat  : additive. Aman dijalankan pada DB yang sudah berisi data.
+-- Migration: kolom kuota hasil upload Excel pada tabel utama
+-- Tanggal: 2026-10-27 (revisi: angka upload masuk ke ohrm_ext_department_quota.planned)
+-- Sifat  : additive, aman dijalankan pada tabel yang sudah berisi data.
 --
--- Kenapa tabel terpisah dari ohrm_ext_department_quota:
---   save_quota.php melakukan  ON DUPLICATE KEY UPDATE total_additional = VALUES(...)
---   setiap sync dari Acumatica, jadi angka manual yang ditulis ke tabel utama akan
---   tertimpa. Angka manual disimpan di tabel sendiri supaya tidak pernah tersentuh sync.
+-- Latar belakang:
+--   Hasil upload Excel harus tampil di kolom "Planned" pada menu History Quota
+--   Department. Kolom planned belum pernah ada di tabel ini — nilai Planned di UI
+--   selama ini DIHITUNG dari SUM(TOTPERSON) case yang approvalnya Completed.
 --
--- Kenapa TANPA unique key (ledger, satu baris per upload):
---   - upload bersifat AKUMULATIF -> total per department+tahun = SUM(total_person)
---   - riwayat upload tetap utuh: siapa, kapan, file apa, berapa orang
---   - kalau perlu membatalkan satu upload, cukup hapus baris dengan id tersebut
+--   planned = angka dari upload Excel (AKUMULATIF, ditambah tiap upload)
+--   branch  = branch dari Excel, dipakai sebagai fallback tampilan kalau Acumatica
+--             belum punya attribute BRANCH untuk dept/tahun tsb
+--
+--   AMAN dari sync Acumatica: save_quota.php melakukan
+--     ON DUPLICATE KEY UPDATE total_additional=..., replacement=..., reduction=..., unplanned=...
+--   Kolom planned & branch TIDAK ada di daftar itu, jadi tidak pernah ditimpa.
+--
+-- Catatan: tabel ohrm_ext_department_quota_manual (percobaan sebelumnya) tidak dipakai
+--   lagi. Isinya kosong; boleh dihapus kapan saja:
+--     DROP TABLE ohrm_ext_department_quota_manual;
 --
 -- Jalankan di server prod setelah git pull:
 --   mysql -u orangehrm -p orangehrm < deploy/sql/quota-manual-upload.sql
 
-CREATE TABLE IF NOT EXISTS ohrm_ext_department_quota_manual (
-    id           INT(11) NOT NULL AUTO_INCREMENT,
-    dept_name    VARCHAR(100) NOT NULL,
-    year         INT(4) NOT NULL,
-    branch       VARCHAR(100) DEFAULT NULL,
-    total_person INT(11) NOT NULL DEFAULT 0,
-    source_file  VARCHAR(255) DEFAULT NULL,
-    uploaded_by  VARCHAR(100) DEFAULT NULL,
-    uploaded_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_dept_year (dept_name, year),
-    KEY idx_uploaded_at (uploaded_at)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+ALTER TABLE ohrm_ext_department_quota
+    ADD COLUMN planned INT(11) NOT NULL DEFAULT 0 AFTER total_additional,
+    ADD COLUMN branch VARCHAR(100) DEFAULT NULL AFTER planned;

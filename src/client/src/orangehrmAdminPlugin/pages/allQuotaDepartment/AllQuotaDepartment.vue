@@ -67,7 +67,7 @@
         "
       >
         <span class="oxd-text oxd-text--span" style="color: #64748b">
-          Angka dari Excel masuk ke kolom Manual dan diakumulasi. Kolom Sisa =
+          Angka dari Excel masuk ke kolom Planned dan diakumulasi. Kolom Sisa =
           kuota yang belum terpakai.
         </span>
         <oxd-button
@@ -396,8 +396,9 @@
           <p class="oxd-text oxd-text--p" style="margin-top: 0">
             File <strong>.xlsx</strong> dengan kolom:
             <strong>branch, department, total person, year</strong> (urutan
-            bebas, maksimal 2 MB). Angka disimpan sebagai kuota manual dan
-            <strong>diakumulasi</strong> — upload ulang akan menambah.
+            bebas, maksimal 2 MB). Angka masuk ke kolom
+            <strong>Planned</strong> dan <strong>diakumulasi</strong> — upload
+            ulang akan menambah.
           </p>
 
           <div style="display: flex; align-items: center; gap: 12px">
@@ -464,7 +465,7 @@
                       Total Person
                     </th>
                     <th style="padding: 8px; text-align: center">
-                      Manual sekarang
+                      Planned sekarang
                     </th>
                     <th style="padding: 8px; text-align: left">Status</th>
                   </tr>
@@ -491,8 +492,8 @@
                     </td>
                     <td style="padding: 8px; text-align: center">
                       <span v-if="r.status === 'ok'">
-                        {{ r.current_manual }} &rarr;
-                        {{ r.current_manual + r.total_person }}
+                        {{ r.current_planned || 0 }} &rarr;
+                        {{ (r.current_planned || 0) + r.total_person }}
                       </span>
                       <span v-else>-</span>
                     </td>
@@ -601,7 +602,6 @@ export default {
           title: 'Planned',
           style: {flex: 2},
         },
-        {name: 'manual_total', title: 'Manual', style: {flex: 1}},
         {name: 'sisa', title: 'Sisa', style: {flex: 1}},
         {name: 'replacement', title: 'Replacement', style: {flex: 1}},
         {name: 'reduction', title: 'Reduction', style: {flex: 1}},
@@ -680,8 +680,9 @@ export default {
             year: item.year,
             branch: item.branch || '-',
             planned: item.planned,
+            planned_upload: item.planned_upload || 0,
+            planned_approved: item.planned_approved || 0,
             total_additional: item.total_additional,
-            manual_total: item.manual_total || 0,
             sisa: item.sisa || 0,
             replacement: item.replacement,
             reduction: item.reduction,

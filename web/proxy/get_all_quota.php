@@ -13,32 +13,29 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Sumber angka per baris (dept + tahun):
-    //   total_additional      -> hasil sync Acumatica (ohrm_ext_department_quota)
-    //   manual_total          -> SUM upload Excel (ohrm_ext_department_quota_manual, ledger)
-    //   planned               -> SUM TOTPERSON case yang approval terakhirnya 'Completed'
-    //   sisa                  -> total_additional + manual_total - planned
+    //   planned_upload   -> kolom `planned` di ohrm_ext_department_quota (hasil upload Excel)
+    //   planned_approved -> SUM TOTPERSON case yang approval terakhirnya 'Completed'
+    //   planned          -> planned_upload + planned_approved (angka yang tampil di UI)
+    //   sisa             -> total_additional + planned_upload - planned_approved
+    //                       (kuota dari Acumatica + kuota hasil upload - yang sudah terpakai)
     //
-    // Kunci baris diambil dari UNION kedua tabel, supaya department yang HANYA ada
-    // dari upload Excel (belum punya baris kuota Acumatica) tetap tampil.
-    //
-    // Branch (berurutan): approved Acumatica -> branch departemen -> branch upload terakhir -> '-'
+    // Branch (berurutan): approved Acumatica -> branch departemen -> branch dari upload -> '-'
     $stmt = $pdo->query("
         SELECT
             q.id,
             k.dept_name,
             k.year,
-            TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(man.latest_branch), ''), '-')) AS branch,
+            TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(q.branch), ''), '-')) AS branch,
             COALESCE(q.total_additional, 0) AS total_additional,
-            COALESCE(man.manual_total, 0) AS manual_total,
+            COALESCE(q.planned, 0) AS planned_upload,
+            COALESCE(approved.planned_count, 0) AS planned_approved,
+            (COALESCE(q.planned, 0) + COALESCE(approved.planned_count, 0)) AS planned,
             COALESCE(q.replacement, 0) AS replacement,
             COALESCE(q.reduction, 0) AS reduction,
             COALESCE(q.unplanned, 0) AS unplanned,
-            COALESCE(approved.planned_count, 0) AS planned,
-            (COALESCE(q.total_additional, 0) + COALESCE(man.manual_total, 0) - COALESCE(approved.planned_count, 0)) AS sisa
+            (COALESCE(q.total_additional, 0) + COALESCE(q.planned, 0) - COALESCE(approved.planned_count, 0)) AS sisa
         FROM (
             SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota
-            UNION
-            SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota_manual
         ) k
         LEFT JOIN ohrm_ext_department_quota q
                ON TRIM(q.dept_name) = k.dept_name AND q.year = k.year
@@ -80,29 +77,18 @@ try {
             WHERE attr_branch.attribute_value IS NOT NULL AND attr_branch.attribute_value != ''
             GROUP BY TRIM(attr_dept.attribute_value)
         ) dept_branch ON dept_branch.dept_name = k.dept_name
-        LEFT JOIN (
-            -- Ledger upload: total per dept+tahun + branch dari upload terakhir
-            SELECT
-                TRIM(dept_name) AS dept_name,
-                year,
-                SUM(total_person) AS manual_total,
-                SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(branch, '') ORDER BY id DESC SEPARATOR '||'), '||', 1) AS latest_branch
-            FROM ohrm_ext_department_quota_manual
-            GROUP BY TRIM(dept_name), year
-        ) man ON man.dept_name = k.dept_name AND man.year = k.year
         ORDER BY k.year DESC, k.dept_name ASC, branch ASC
     ");
 
     $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
     // Cast ke integer: PDO mengembalikan string untuk hasil COALESCE/SUM
     foreach ($data as &$row) {
-        $row['total_additional'] = (int) $row['total_additional'];
-        $row['manual_total'] = (int) $row['manual_total'];
-        $row['planned'] = (int) $row['planned'];
-        $row['sisa'] = (int) $row['sisa'];
-        $row['replacement'] = (int) $row['replacement'];
-        $row['reduction'] = (int) $row['reduction'];
-        $row['unplanned'] = (int) $row['unplanned'];
+        foreach ([
+            'total_additional', 'planned', 'planned_upload', 'planned_approved',
+            'replacement', 'reduction', 'unplanned', 'sisa',
+        ] as $numCol) {
+            $row[$numCol] = (int) $row[$numCol];
+        }
         $row['branch']  = trim((string) $row['branch']);
     }
     unset($row);
