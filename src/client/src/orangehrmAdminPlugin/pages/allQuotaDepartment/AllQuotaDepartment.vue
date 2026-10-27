@@ -457,23 +457,64 @@
                 class="oxd-table"
                 style="
                   width: 100%;
+                  table-layout: fixed;
                   border-collapse: collapse;
                   border: 1px solid #ced4da;
+                  font-size: 13px;
                 "
               >
+                <colgroup>
+                  <col style="width: 48px" />
+                  <col style="width: 70px" />
+                  <col style="width: 34%" />
+                  <col style="width: 58px" />
+                  <col style="width: 96px" />
+                  <col style="width: 124px" />
+                  <col />
+                </colgroup>
                 <thead style="background-color: #f4f6f8">
                   <tr>
-                    <th style="padding: 8px; text-align: center">Baris</th>
-                    <th style="padding: 8px; text-align: left">Branch</th>
-                    <th style="padding: 8px; text-align: left">Department</th>
-                    <th style="padding: 8px; text-align: center">Year</th>
-                    <th style="padding: 8px; text-align: center">
+                    <th
+                      style="
+                        padding: 8px 10px;
+                        text-align: center;
+                        white-space: nowrap;
+                      "
+                    >
+                      Baris
+                    </th>
+                    <th style="padding: 8px 10px; text-align: left">Branch</th>
+                    <th style="padding: 8px 10px; text-align: left">
+                      Department
+                    </th>
+                    <th
+                      style="
+                        padding: 8px 10px;
+                        text-align: right;
+                        white-space: nowrap;
+                      "
+                    >
+                      Year
+                    </th>
+                    <th
+                      style="
+                        padding: 8px 10px;
+                        text-align: right;
+                        white-space: nowrap;
+                      "
+                    >
                       Total Person
                     </th>
-                    <th style="padding: 8px; text-align: center">
-                      Planned sekarang &rarr; jadi
+                    <th
+                      style="
+                        padding: 8px 10px;
+                        text-align: right;
+                        white-space: nowrap;
+                      "
+                    >
+                      Planned &rarr; jadi
                     </th>
-                    <th style="padding: 8px; text-align: left">Status</th>
+                    <th style="padding: 8px 10px; text-align: left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -485,32 +526,64 @@
                       r.status === 'error' ? 'background-color: #fdf2f2' : ''
                     "
                   >
-                    <td style="padding: 8px; text-align: center">
+                    <td
+                      style="
+                        padding: 8px 10px;
+                        text-align: center;
+                        color: #64748b;
+                      "
+                    >
                       {{ r.row }}
                     </td>
-                    <td style="padding: 8px">{{ r.branch || '-' }}</td>
-                    <td style="padding: 8px">
-                      {{ r.department || '-' }}
-                      <span
-                        v-if="r.status === 'ok' && r.exists"
+                    <td style="padding: 8px 10px">{{ r.branch || '-' }}</td>
+                    <td style="padding: 8px 10px">
+                      <div
                         style="
-                          margin-left: 6px;
-                          padding: 1px 6px;
-                          border-radius: 8px;
-                          background: #fef3c7;
-                          color: #92400e;
-                          font-size: 11px;
+                          display: flex;
+                          align-items: center;
+                          justify-content: space-between;
+                          gap: 8px;
+                          min-width: 0;
                         "
-                        >sudah ada</span
                       >
+                        <span
+                          :title="r.department"
+                          style="
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                          "
+                          >{{ r.department || '-' }}</span
+                        >
+                        <span
+                          v-if="r.status === 'ok' && r.exists"
+                          style="
+                            flex: 0 0 auto;
+                            padding: 1px 7px;
+                            border-radius: 8px;
+                            background: #fef3c7;
+                            color: #92400e;
+                            font-size: 11px;
+                            line-height: 16px;
+                            white-space: nowrap;
+                          "
+                          >sudah ada</span
+                        >
+                      </div>
                     </td>
-                    <td style="padding: 8px; text-align: center">
+                    <td style="padding: 8px 10px; text-align: right">
                       {{ r.year || '-' }}
                     </td>
-                    <td style="padding: 8px; text-align: center">
+                    <td style="padding: 8px 10px; text-align: right">
                       {{ r.total_person }}
                     </td>
-                    <td style="padding: 8px; text-align: center">
+                    <td
+                      style="
+                        padding: 8px 10px;
+                        text-align: right;
+                        white-space: nowrap;
+                      "
+                    >
                       <span v-if="r.status === 'ok'">
                         {{ r.current_planned || 0 }} &rarr;
                         {{ r.total_person }}
@@ -518,7 +591,7 @@
                       <span v-else>-</span>
                     </td>
                     <td
-                      style="padding: 8px"
+                      style="padding: 8px 10px; font-size: 12px"
                       :style="
                         r.status === 'ok' ? 'color:#1e8e3e' : 'color:#a1281f'
                       "
