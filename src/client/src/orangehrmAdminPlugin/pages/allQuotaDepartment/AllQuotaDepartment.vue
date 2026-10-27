@@ -55,7 +55,7 @@
         @delete="onClickDeleteSelected"
       ></table-header>
 
-      <!-- Toolbar: Upload Excel (menambah kuota manual, akumulatif) -->
+      <!-- Toolbar: Upload Excel (mengganti kuota planned dari Excel) -->
       <div
         style="
           display: flex;
@@ -67,8 +67,9 @@
         "
       >
         <span class="oxd-text oxd-text--span" style="color: #64748b">
-          Angka dari Excel masuk ke kolom Planned dan diakumulasi. Kolom Sisa =
-          kuota yang belum terpakai.
+          Angka dari Excel masuk ke kolom Planned dan menggantikan angka
+          sebelumnya (tidak diakumulasi). Kolom Sisa = kuota yang belum
+          terpakai.
         </span>
         <oxd-button
           display-type="secondary"
@@ -397,8 +398,8 @@
             File <strong>.xlsx</strong> dengan kolom:
             <strong>branch, department, total person, year</strong> (urutan
             bebas, maksimal 2 MB). Angka masuk ke kolom
-            <strong>Planned</strong> dan <strong>diakumulasi</strong> — upload
-            ulang akan menambah.
+            <strong>Planned</strong> dan <strong>menggantikan</strong> angka
+            sebelumnya — upload ulang tidak menambah.
           </p>
 
           <div style="display: flex; align-items: center; gap: 12px">
@@ -465,7 +466,7 @@
                       Total Person
                     </th>
                     <th style="padding: 8px; text-align: center">
-                      Planned sekarang
+                      Planned sekarang &rarr; jadi
                     </th>
                     <th style="padding: 8px; text-align: left">Status</th>
                   </tr>
@@ -493,7 +494,7 @@
                     <td style="padding: 8px; text-align: center">
                       <span v-if="r.status === 'ok'">
                         {{ r.current_planned || 0 }} &rarr;
-                        {{ (r.current_planned || 0) + r.total_person }}
+                        {{ r.total_person }}
                       </span>
                       <span v-else>-</span>
                     </td>

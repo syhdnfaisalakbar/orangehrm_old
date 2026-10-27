@@ -9,11 +9,12 @@
  *     "rows": [ {"department":"FNA","year":2026,"total_person":5,"branch":"JKT"}, ... ]
  *   }
  *
- * Sifat penulisan: AKUMULATIF ke ohrm_ext_department_quota.planned.
- *   planned = planned + total_person  (upload ulang untuk dept+tahun yang sama MENAMBAH)
+ * Sifat penulisan: MENGGANTI (tidak diakumulasi) pada ohrm_ext_department_quota.planned.
+ *   planned = total_person  (upload ulang untuk dept+tahun yang sama MENIMPA angka lama)
  *   Jadi satu baris per department+tahun; angka langsung tampil di kolom "Planned"
  *   pada History Quota Department.
- *   Karena itu UI wajib menampilkan pratinjau "sebelum -> sesudah" sebelum menyimpan.
+ *   Karena itu UI wajib menampilkan pratinjau "sebelum -> sesudah" sebelum menyimpan,
+ *   supaya Pak sadar angka lama akan diganti.
  *
  * Yang TIDAK disentuh: total_additional, replacement, reduction, unplanned. Kolom-kolom
  *   itu milik sync Acumatica (save_quota.php), dan karena `planned` tidak ada di daftar
@@ -94,8 +95,8 @@ try {
              (dept_name, year, total_additional, replacement, reduction, unplanned, planned, branch)
          VALUES (:dept, :year, 0, 0, 0, 0, :planned, :branch)
          ON DUPLICATE KEY UPDATE
-             planned = planned + VALUES(planned),
-             branch  = IF(branch IS NULL OR branch = "", VALUES(branch), branch)'
+             planned = VALUES(planned),
+             branch  = IF(VALUES(branch) IS NULL OR VALUES(branch) = "", branch, VALUES(branch))'
     );
 
     $pdo->beginTransaction();
