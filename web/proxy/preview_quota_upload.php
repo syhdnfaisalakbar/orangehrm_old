@@ -16,6 +16,7 @@ require_once __DIR__ . '/_config.php';
 require_once __DIR__ . '/_guard.php';
 require_once __DIR__ . '/_xlsx_reader.php';
 require_once __DIR__ . '/_quota_upload_lib.php';
+require_once __DIR__ . '/_quota_approved.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -77,7 +78,8 @@ if (empty($results)) {
 }
 
 // Info angka "Planned" yang sekarang tersimpan, supaya UI bisa menampilkan
-// "sebelum -> sesudah". Sumbernya kolom planned di ohrm_ext_department_quota.
+// "sebelum -> jadi". Sumbernya kolom planned di ohrm_ext_department_quota,
+// ditambah kuota HRPLAN Acumatica yang sudah approved (kapasitas = planned + approved).
 try {
     $pdo = new PDO(
         'mysql:host=' . PROXY_DB_HOST . ';dbname=' . PROXY_DB_NAME . ';charset=utf8',
@@ -97,7 +99,10 @@ try {
         $row['current_planned'] = 0;
         $row['current_manual'] = 0; // nama lama, dipertahankan agar bundle lama tidak rusak
         $row['current_total_additional'] = 0;
-        $row['exists'] = false;     // true = dept+tahun ini sudah ada di DB -> upload akan menimpa
+        $row['exists'] = false;      // true = dept+tahun ini sudah ada di DB -> upload akan menimpa
+        $row['current_approved'] = 0; // HRPLAN Acumatica approved (ikut jadi kapasitas)
+        $row['capacity_before'] = 0;  // planned + approved sebelum upload
+        $row['capacity_after'] = 0;   // (total person di file) + approved
 
         if ($row['status'] !== 'ok') {
             continue;
@@ -110,6 +115,9 @@ try {
             $row['current_manual'] = (int) $base['planned'];
             $row['current_total_additional'] = (int) $base['total_additional'];
         }
+        $row['current_approved'] = quota_approved_for($pdo, (string) $row['department'], (int) $row['year']);
+        $row['capacity_before'] = $row['current_planned'] + $row['current_approved'];
+        $row['capacity_after'] = (int) $row['total_person'] + $row['current_approved'];
     }
     unset($row);
 } catch (Throwable $e) {
@@ -119,11 +127,15 @@ try {
 
 $okCount = 0;
 $existingCount = 0;
+$approvedCount = 0;
 foreach ($results as $r) {
     if ($r['status'] === 'ok') {
         $okCount++;
         if (!empty($r['exists'])) {
             $existingCount++;
+        }
+        if (!empty($r['current_approved'])) {
+            $approvedCount++;
         }
     }
 }
@@ -137,6 +149,7 @@ echo json_encode([
         'error' => count($results) - $okCount,
         'existing' => $existingCount,   // baris valid yang akan MENIMPA data lama
         'new' => $okCount - $existingCount,
+        'with_approved' => $approvedCount, // dept yang sudah punya HRPLAN approved (risiko dobel)
     ],
     'rows' => $results,
 ]);

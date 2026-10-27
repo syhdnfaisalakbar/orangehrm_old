@@ -451,6 +451,15 @@
                 <strong>{{ previewSummary.existing }}</strong> department sudah
                 ada di database &mdash; angkanya akan <strong>ditimpa</strong>.
               </span>
+              <span
+                v-if="previewSummary.with_approved > 0"
+                style="color: #b45309"
+              >
+                &middot;
+                <strong>{{ previewSummary.with_approved }}</strong> department
+                sudah punya <strong>HRPLAN approved</strong> &mdash; kuota
+                upload akan <strong>ditambahkan</strong> ke situ.
+              </span>
             </p>
             <div style="max-height: 320px; overflow: auto">
               <table
@@ -569,6 +578,20 @@
                           "
                           >sudah ada</span
                         >
+                        <span
+                          v-if="r.status === 'ok' && r.current_approved > 0"
+                          style="
+                            flex: 0 0 auto;
+                            padding: 1px 7px;
+                            border-radius: 8px;
+                            background: #e0e7ff;
+                            color: #3730a3;
+                            font-size: 11px;
+                            line-height: 16px;
+                            white-space: nowrap;
+                          "
+                          >HRPLAN {{ r.current_approved }}</span
+                        >
                       </div>
                     </td>
                     <td style="padding: 8px 10px; text-align: right">
@@ -585,8 +608,8 @@
                       "
                     >
                       <span v-if="r.status === 'ok'">
-                        {{ r.current_planned || 0 }} &rarr;
-                        {{ r.total_person }}
+                        {{ r.capacity_before || 0 }} &rarr;
+                        {{ r.capacity_after || 0 }}
                       </span>
                       <span v-else>-</span>
                     </td>
@@ -681,7 +704,14 @@ export default {
       isPreviewing: false,
       isSaving: false,
       previewRows: [],
-      previewSummary: {total: 0, ok: 0, error: 0, existing: 0, new: 0},
+      previewSummary: {
+        total: 0,
+        ok: 0,
+        error: 0,
+        existing: 0,
+        new: 0,
+        with_approved: 0,
+      },
       uploadError: '',
       uploadResult: '',
 
@@ -974,7 +1004,14 @@ export default {
       this.selectedFileName = '';
       this.selectedFile = null;
       this.previewRows = [];
-      this.previewSummary = {total: 0, ok: 0, error: 0, existing: 0, new: 0};
+      this.previewSummary = {
+        total: 0,
+        ok: 0,
+        error: 0,
+        existing: 0,
+        new: 0,
+        with_approved: 0,
+      };
       this.uploadError = '';
       this.uploadResult = '';
       const input = this.$refs.fileInput;
@@ -1006,7 +1043,14 @@ export default {
       this.uploadError = '';
       this.uploadResult = '';
       this.previewRows = [];
-      this.previewSummary = {total: 0, ok: 0, error: 0, existing: 0, new: 0};
+      this.previewSummary = {
+        total: 0,
+        ok: 0,
+        error: 0,
+        existing: 0,
+        new: 0,
+        with_approved: 0,
+      };
 
       if (!file) {
         this.selectedFileName = '';
@@ -1058,6 +1102,7 @@ export default {
           error: 0,
           existing: 0,
           new: 0,
+          with_approved: 0,
         };
       } catch (error) {
         console.error('Gagal preview upload kuota:', error);
@@ -1083,24 +1128,30 @@ export default {
         return;
       }
 
-      // Peringatan sebelum menimpa: upload bersifat MENGGANTI, bukan menambah.
-      const menimpa = this.previewRows.filter(
-        (r) => r.status === 'ok' && r.exists,
+      // Peringatan sebelum menyimpan: angka bisa MENIMPA data lama dan/atau
+      // DITAMBAHKAN ke kuota HRPLAN Acumatica yang sudah approved.
+      const berisiko = this.previewRows.filter(
+        (r) => r.status === 'ok' && (r.exists || r.current_approved > 0),
       );
-      if (menimpa.length > 0) {
-        const daftar = menimpa
+      if (berisiko.length > 0) {
+        const daftar = berisiko
           .slice(0, 10)
-          .map(
-            (r) =>
-              `- ${r.department} ${r.year}: ${r.current_planned || 0} -> ${
-                r.total_person
-              }`,
-          )
+          .map((r) => {
+            const ket = [];
+            if (r.exists) {
+              ket.push('angka lama ditimpa');
+            }
+            if (r.current_approved > 0) {
+              ket.push(`ditambah HRPLAN ${r.current_approved}`);
+            }
+            return `- ${r.department} ${r.year}: ${r.capacity_before || 0} -> ${
+              r.capacity_after || 0
+            } (${ket.join(', ')})`;
+          })
           .join('\n');
-        const lebih = menimpa.length - 10;
+        const lebih = berisiko.length - 10;
         const pesan =
-          `${menimpa.length} department sudah ada di database dan angkanya ` +
-          `akan DITIMPA:\n\n${daftar}` +
+          `${berisiko.length} department perlu diperhatikan:\n\n${daftar}` +
           (lebih > 0 ? `\n- ... dan ${lebih} department lain` : '') +
           '\n\nLanjutkan simpan?';
         // eslint-disable-next-line no-alert
