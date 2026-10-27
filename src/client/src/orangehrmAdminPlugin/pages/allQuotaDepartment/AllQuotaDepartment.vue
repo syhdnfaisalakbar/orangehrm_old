@@ -666,6 +666,8 @@
 </template>
 
 <script>
+import Swal from 'sweetalert2';
+
 export default {
   name: 'ViewAllQuotaDepartment',
   data() {
@@ -1116,6 +1118,11 @@ export default {
 
       if (rows.length === 0) {
         this.uploadError = 'Tidak ada baris valid untuk disimpan.';
+        Swal.fire({
+          title: 'Tidak Ada Data',
+          icon: 'warning',
+          text: 'Tidak ada baris valid untuk disimpan. Perbaiki file lalu upload ulang.',
+        });
         return;
       }
 
@@ -1125,28 +1132,46 @@ export default {
         (r) => r.status === 'ok' && (r.exists || r.current_approved > 0),
       );
       if (berisiko.length > 0) {
-        const daftar = berisiko
-          .slice(0, 10)
-          .map((r) => {
-            const ket = [];
-            if (r.exists) {
-              ket.push('ditambah ke angka lama');
-            }
-            if (r.current_approved > 0) {
-              ket.push(`termasuk HRPLAN ${r.current_approved}`);
-            }
-            return `- ${r.department} ${r.year}: ${r.capacity_before || 0} -> ${
-              r.capacity_after || 0
-            } (${ket.join(', ')})`;
-          })
-          .join('\n');
+        const daftar = berisiko.slice(0, 10).map((r) => {
+          const ket = [];
+          if (r.exists) {
+            ket.push('ditambah ke angka lama');
+          }
+          if (r.current_approved > 0) {
+            ket.push(`termasuk HRPLAN ${r.current_approved}`);
+          }
+          return (
+            `<div style="display:flex;gap:6px;margin-bottom:5px">` +
+            `<span style="flex:0 0 auto">&bull;</span>` +
+            `<span style="flex:1 1 auto"><b>${r.department}</b> ${r.year}: ` +
+            `${r.capacity_before || 0} &rarr; ${r.capacity_after || 0} ` +
+            `<span style="color:#92400e">(${ket.join(', ')})</span></span>` +
+            `</div>`
+          );
+        });
         const lebih = berisiko.length - 10;
-        const pesan =
-          `${berisiko.length} department perlu diperhatikan:\n\n${daftar}` +
-          (lebih > 0 ? `\n- ... dan ${lebih} department lain` : '') +
-          '\n\nLanjutkan simpan?';
-        // eslint-disable-next-line no-alert
-        if (!window.confirm(pesan)) {
+        const confirmed = await Swal.fire({
+          title: 'Perlu Diperhatikan',
+          icon: 'warning',
+          html:
+            `<div style="font-size:13px">${berisiko.length} department ` +
+            `sudah ada di database:</div>` +
+            `<div style="text-align:left;font-size:13px;line-height:1.8;` +
+            `margin-top:10px;padding:10px 12px;background:#f8fafc;` +
+            `border-radius:6px;max-height:220px;overflow-y:auto">` +
+            daftar.join('') +
+            (lebih > 0
+              ? `<div>&bull; ... dan ${lebih} department lain</div>`
+              : '') +
+            `</div>` +
+            `<div style="margin-top:12px;font-size:12px;color:#64748b">` +
+            `Angka upload <b>DIAKUMULASI</b> ke kuota yang sudah ada.</div>`,
+          showCancelButton: true,
+          confirmButtonText: 'Lanjut simpan',
+          cancelButtonText: 'Batal',
+          reverseButtons: true,
+        });
+        if (!confirmed.isConfirmed) {
           return;
         }
       }
@@ -1170,15 +1195,51 @@ export default {
 
         if (result.status !== 'success') {
           this.uploadError = result.message || 'Gagal menyimpan data.';
+          Swal.fire({
+            title: 'Gagal Menyimpan',
+            icon: 'error',
+            text: result.message || 'Gagal menyimpan data.',
+          });
           return;
         }
 
+        // Sukses: simpan ringkasan dulu (modal akan di-reset), tutup modal,
+        // refresh tabel, lalu tampilkan popup konfirmasi.
+        const fileName = this.selectedFileName || '-';
+        const totalMasuk =
+          result.saved_planned ?? result.saved_total_person ?? 0;
         this.uploadResult = result.message;
+        this.closeUploadModal();
         await this.fetchQuotaData();
+
+        Swal.fire({
+          title: 'Upload Berhasil',
+          icon: 'success',
+          html:
+            `<div style="font-size:14px;line-height:1.9">` +
+            `<b>${result.saved_rows ?? 0}</b> baris tersimpan dari file ` +
+            `<b>${fileName}</b>` +
+            `</div>` +
+            `<div style="margin-top:10px;padding:10px 12px;background:#f0fdf4;` +
+            `border-radius:6px;font-size:13px;color:#166534">` +
+            `${result.new_rows ?? 0} department baru &middot; ` +
+            `${result.replaced_rows ?? 0} ditambahkan ke angka lama<br>` +
+            `Total planned masuk: <b>${totalMasuk}</b> orang ` +
+            `&middot; ${result.departments ?? 0} department` +
+            `</div>` +
+            `<div style="margin-top:10px;font-size:12px;color:#64748b">` +
+            `Tabel History Quota sudah diperbarui.</div>`,
+          confirmButtonText: 'Selesai',
+        });
       } catch (error) {
         console.error('Gagal menyimpan upload kuota:', error);
         this.uploadError =
           'Tidak bisa menghubungi server untuk menyimpan data.';
+        Swal.fire({
+          title: 'Gagal',
+          icon: 'error',
+          text: 'Tidak bisa menghubungi server untuk menyimpan data.',
+        });
       } finally {
         this.isSaving = false;
       }
