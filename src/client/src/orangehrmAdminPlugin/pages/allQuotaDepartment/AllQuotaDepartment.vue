@@ -399,7 +399,9 @@
             <strong>branch, department, total person, year</strong> (urutan
             bebas, maksimal 2 MB). Angka masuk ke kolom
             <strong>Planned</strong> dan <strong>menggantikan</strong> angka
-            sebelumnya — upload ulang tidak menambah.
+            upload sebelumnya. Kalau department itu sudah punya
+            <strong>HRPLAN approved</strong> di Acumatica, angka upload
+            <strong>ditambahkan</strong> ke kuota tersebut.
           </p>
 
           <div style="display: flex; align-items: center; gap: 12px">
@@ -473,13 +475,14 @@
                 "
               >
                 <colgroup>
-                  <col style="width: 48px" />
-                  <col style="width: 70px" />
-                  <col style="width: 34%" />
-                  <col style="width: 58px" />
-                  <col style="width: 96px" />
-                  <col style="width: 124px" />
+                  <col style="width: 44px" />
+                  <col style="width: 64px" />
                   <col />
+                  <col style="width: 52px" />
+                  <col style="width: 100px" />
+                  <col style="width: 74px" />
+                  <col style="width: 108px" />
+                  <col style="width: 132px" />
                 </colgroup>
                 <thead style="background-color: #f4f6f8">
                   <tr>
@@ -521,6 +524,15 @@
                         white-space: nowrap;
                       "
                     >
+                      HRPLAN
+                    </th>
+                    <th
+                      style="
+                        padding: 8px 10px;
+                        text-align: right;
+                        white-space: nowrap;
+                      "
+                    >
                       Planned &rarr; jadi
                     </th>
                     <th style="padding: 8px 10px; text-align: left">Status</th>
@@ -546,59 +558,32 @@
                     </td>
                     <td style="padding: 8px 10px">{{ r.branch || '-' }}</td>
                     <td style="padding: 8px 10px">
-                      <div
+                      <span
+                        :title="r.department"
                         style="
-                          display: flex;
-                          align-items: center;
-                          justify-content: space-between;
-                          gap: 8px;
-                          min-width: 0;
+                          display: block;
+                          overflow: hidden;
+                          text-overflow: ellipsis;
+                          white-space: nowrap;
                         "
+                        >{{ r.department || '-' }}</span
                       >
-                        <span
-                          :title="r.department"
-                          style="
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                            white-space: nowrap;
-                          "
-                          >{{ r.department || '-' }}</span
-                        >
-                        <span
-                          v-if="r.status === 'ok' && r.exists"
-                          style="
-                            flex: 0 0 auto;
-                            padding: 1px 7px;
-                            border-radius: 8px;
-                            background: #fef3c7;
-                            color: #92400e;
-                            font-size: 11px;
-                            line-height: 16px;
-                            white-space: nowrap;
-                          "
-                          >sudah ada</span
-                        >
-                        <span
-                          v-if="r.status === 'ok' && r.current_approved > 0"
-                          style="
-                            flex: 0 0 auto;
-                            padding: 1px 7px;
-                            border-radius: 8px;
-                            background: #e0e7ff;
-                            color: #3730a3;
-                            font-size: 11px;
-                            line-height: 16px;
-                            white-space: nowrap;
-                          "
-                          >HRPLAN {{ r.current_approved }}</span
-                        >
-                      </div>
                     </td>
                     <td style="padding: 8px 10px; text-align: right">
                       {{ r.year || '-' }}
                     </td>
                     <td style="padding: 8px 10px; text-align: right">
                       {{ r.total_person }}
+                    </td>
+                    <td
+                      style="padding: 8px 10px; text-align: right"
+                      :style="
+                        r.current_approved > 0
+                          ? 'color:#3730a3'
+                          : 'color:#94a3b8'
+                      "
+                    >
+                      {{ r.current_approved || 0 }}
                     </td>
                     <td
                       style="
@@ -619,7 +604,13 @@
                         r.status === 'ok' ? 'color:#1e8e3e' : 'color:#a1281f'
                       "
                     >
-                      {{ r.status === 'ok' ? 'OK' : r.message }}
+                      <template v-if="r.status === 'ok'">
+                        OK
+                        <span v-if="r.exists" style="color: #b45309">
+                          &middot; menimpa
+                        </span>
+                      </template>
+                      <span v-else>{{ r.message }}</span>
                     </td>
                   </tr>
                 </tbody>
