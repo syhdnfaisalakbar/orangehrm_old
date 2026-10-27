@@ -99,10 +99,12 @@ try {
         $row['current_planned'] = 0;
         $row['current_manual'] = 0; // nama lama, dipertahankan agar bundle lama tidak rusak
         $row['current_total_additional'] = 0;
-        $row['exists'] = false;      // true = dept+tahun ini sudah ada di DB -> upload akan menimpa
+        $row['exists'] = false;       // true = akan DILEWATI (dept+tahun sudah punya kuota)
+        $row['row_exists'] = false;   // true = baris dept+tahun ada di DB (mis. dibuat sync Acumatica)
         $row['current_approved'] = 0; // HRPLAN Acumatica approved (ikut jadi kapasitas)
         $row['capacity_before'] = 0;  // planned + approved sebelum upload
-        $row['capacity_after'] = 0;   // planned + approved SETELAH upload (akumulatif)
+        $row['capacity_after'] = 0;   // planned + approved kalau baris ini disimpan
+        $row['skip'] = false;
 
         if ($row['status'] !== 'ok') {
             continue;
@@ -110,7 +112,7 @@ try {
         $stmtBase->execute([':dept' => $row['department'], ':year' => $row['year']]);
         $base = $stmtBase->fetch(PDO::FETCH_ASSOC);
         if ($base) {
-            $row['exists'] = true;
+            $row['row_exists'] = true;
             $row['current_planned'] = (int) $base['planned'];
             $row['current_manual'] = (int) $base['planned'];
             $row['current_total_additional'] = (int) $base['total_additional'];
@@ -118,6 +120,23 @@ try {
         $row['current_approved'] = quota_approved_for($pdo, (string) $row['department'], (int) $row['year']);
         $row['capacity_before'] = $row['current_planned'] + $row['current_approved'];
         $row['capacity_after'] = $row['capacity_before'] + (int) $row['planned'];
+
+        // Aturan skip (pilihan Pak): department+tahun yang SUDAH PUNYA kuota tidak diisi lagi.
+        // Baris kosong hasil sync Acumatica (planned 0, tanpa HRPLAN) tetap boleh diisi.
+        if ($row['current_planned'] > 0 || $row['current_approved'] > 0) {
+            $row['skip'] = true;
+            $row['exists'] = true;
+            $row['status'] = 'skip';
+            $row['capacity_after'] = $row['capacity_before'];
+            $rincian = [];
+            if ($row['current_planned'] > 0) {
+                $rincian[] = 'upload ' . $row['current_planned'];
+            }
+            if ($row['current_approved'] > 0) {
+                $rincian[] = 'HRPLAN ' . $row['current_approved'];
+            }
+            $row['message'] = 'sudah punya kuota (' . implode(' + ', $rincian) . ') — dilewati';
+        }
     }
     unset($row);
 } catch (Throwable $e) {
@@ -125,18 +144,20 @@ try {
     error_log('[preview_quota_upload] DB: ' . $e->getMessage());
 }
 
-$okCount = 0;
-$existingCount = 0;
-$approvedCount = 0;
+$okCount = 0;        // akan disimpan
+$skipCount = 0;      // dilewati (sudah punya kuota)
+$fillCount = 0;      // baris sudah ada (mis. dari sync) tapi masih kosong -> diisi
+$errorCount = 0;
 foreach ($results as $r) {
     if ($r['status'] === 'ok') {
         $okCount++;
-        if (!empty($r['exists'])) {
-            $existingCount++;
+        if (!empty($r['row_exists'])) {
+            $fillCount++;
         }
-        if (!empty($r['current_approved'])) {
-            $approvedCount++;
-        }
+    } elseif ($r['status'] === 'skip') {
+        $skipCount++;
+    } else {
+        $errorCount++;
     }
 }
 
@@ -146,10 +167,12 @@ echo json_encode([
     'summary' => [
         'total' => count($results),
         'ok' => $okCount,
-        'error' => count($results) - $okCount,
-        'existing' => $existingCount,   // baris valid yang akan MENIMPA data lama
-        'new' => $okCount - $existingCount,
-        'with_approved' => $approvedCount, // dept yang sudah punya HRPLAN approved (risiko dobel)
+        'skip' => $skipCount,
+        'error' => $errorCount,
+        'existing' => $skipCount,   // nama lama: baris yang dilewati
+        'new' => $okCount,
+        'fill_empty' => $fillCount, // baris sudah ada tapi kuotanya masih 0
+        'with_approved' => $skipCount,
     ],
     'rows' => $results,
 ]);

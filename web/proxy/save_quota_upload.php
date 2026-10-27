@@ -9,11 +9,12 @@
  *     "rows": [ {"department":"FNA","year":2026,"planned":5,"branch":"JKT"}, ... ]
  *   }
  *
- * Sifat penulisan: AKUMULATIF ke ohrm_ext_department_quota.planned.
- *   planned = planned + planned(file)  (upload ulang untuk dept+tahun yang sama MENAMBAH)
- *   Jadi satu baris per department+tahun; angka langsung tampil di kolom "Planned"
- *   pada History Quota Department.
- *   Karena itu UI wajib menampilkan pratinjau "sebelum -> jadi" sebelum menyimpan.
+ * Sifat penulisan: SKIP kalau sudah punya kuota.
+ *   Sebelum menulis, tiap baris dicek: kalau department+tahun itu sudah punya kuota
+ *   (kolom planned > 0, atau ada HRPLAN Acumatica approved) -> baris DILEWATI.
+ *   Baris yang belum ada, atau baris kosong hasil sync Acumatica (planned 0), diisi:
+ *   INSERT ... ON DUPLICATE KEY UPDATE planned = planned + VALUES(planned)
+ *   (planned di DB masih 0 pada titik ini, jadi efektifnya mengisi).
  *
  * Yang TIDAK disentuh: total_additional, replacement, reduction, unplanned. Kolom-kolom
  *   itu milik sync Acumatica (save_quota.php), dan karena `planned` tidak ada di daftar
@@ -23,6 +24,7 @@
 require_once __DIR__ . '/_config.php';
 require_once __DIR__ . '/_guard.php';
 require_once __DIR__ . '/_quota_upload_lib.php';
+require_once __DIR__ . '/_quota_approved.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -102,21 +104,36 @@ try {
     $pdo->beginTransaction();
     $savedRows = 0;
     $savedTotal = 0;
-    $replacedRows = 0;
+    $filledRows = 0;
+    $skippedRows = [];
     $affectedDepts = [];
 
-    // Deteksi "sudah ada" sebelum menulis, supaya notifikasi bisa menyebut berapa
-    // baris yang MENIMPA data lama (rowCount() ON DUPLICATE KEY tidak bisa membedakan
-    // insert / update-tanpa-perubahan).
+    // Deteksi kondisi baris sebelum menulis. Aturan sama dengan pratinjau:
+    // department+tahun yang SUDAH PUNYA kuota (planned > 0 atau HRPLAN approved > 0)
+    // dilewati. Baris kosong hasil sync Acumatica (planned 0) tetap diisi.
     $stmtExists = $pdo->prepare(
-        'SELECT 1 FROM ohrm_ext_department_quota
+        'SELECT COALESCE(planned, 0)
+           FROM ohrm_ext_department_quota
           WHERE TRIM(dept_name) = :dept AND year = :year
           LIMIT 1'
     );
 
     foreach ($accepted as $row) {
         $stmtExists->execute([':dept' => $row['department'], ':year' => $row['year']]);
-        $alreadyExists = (bool) $stmtExists->fetchColumn();
+        $rowExists = $stmtExists->fetchColumn();
+        $currentPlanned = $rowExists === false ? 0 : (int) $rowExists;
+        $currentApproved = quota_approved_for($pdo, (string) $row['department'], (int) $row['year']);
+
+        if ($currentPlanned > 0 || $currentApproved > 0) {
+            $skippedRows[] = [
+                'row' => $row['row'],
+                'department' => $row['department'],
+                'year' => $row['year'],
+                'current_planned' => $currentPlanned,
+                'current_approved' => $currentApproved,
+            ];
+            continue;
+        }
 
         $stmt->execute([
             ':dept' => $row['department'],
@@ -126,8 +143,8 @@ try {
         ]);
         $savedRows++;
         $savedTotal += (int) $row['planned'];
-        if ($alreadyExists) {
-            $replacedRows++;
+        if ($rowExists !== false) {
+            $filledRows++;
         }
         $affectedDepts[mb_strtolower($row['department']) . '|' . $row['year']] = true;
     }
@@ -135,30 +152,39 @@ try {
     $pdo->commit();
 
     $log = sprintf(
-        "[%s] user=%s file=%s baris=%d baru=%d timpa=%d planned=%d dept=%d ip=%s\n",
+        "[%s] user=%s file=%s baris=%d baru=%d isi_kosong=%d dilewati=%d planned=%d dept=%d ip=%s\n",
         date('Y-m-d H:i:s'),
         $userName,
         $fileName !== '' ? $fileName : '(tanpa nama)',
         $savedRows,
-        $savedRows - $replacedRows,
-        $replacedRows,
+        $savedRows - $filledRows,
+        $filledRows,
+        count($skippedRows),
         $savedTotal,
         count($affectedDepts),
         $_SERVER['REMOTE_ADDR'] ?? '-'
     );
     @file_put_contents(__DIR__ . '/quota_upload_log.txt', $log, FILE_APPEND | LOCK_EX);
 
+    $pesan = sprintf(
+        '%d baris tersimpan: %d department baru, %d melengkapi baris kosong.',
+        $savedRows,
+        $savedRows - $filledRows,
+        $filledRows
+    );
+    if (count($skippedRows) > 0) {
+        $pesan .= sprintf(' %d baris dilewati karena department sudah punya kuota.', count($skippedRows));
+    }
+
     echo json_encode([
         'status' => 'success',
-        'message' => sprintf(
-            '%d baris tersimpan: %d baru, %d menimpa data lama.',
-            $savedRows,
-            $savedRows - $replacedRows,
-            $replacedRows
-        ),
+        'message' => $pesan,
         'saved_rows' => $savedRows,
-        'new_rows' => $savedRows - $replacedRows,
-        'replaced_rows' => $replacedRows,
+        'new_rows' => $savedRows - $filledRows,
+        'filled_rows' => $filledRows,
+        'replaced_rows' => 0, // nama lama: tidak ada lagi yang ditimpa
+        'skipped_rows' => count($skippedRows),
+        'skipped_detail' => $skippedRows,
         'saved_total_person' => $savedTotal, // alias nama lama
         'saved_planned' => $savedTotal,
         'departments' => count($affectedDepts),

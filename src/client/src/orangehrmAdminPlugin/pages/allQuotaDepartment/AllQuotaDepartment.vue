@@ -67,8 +67,9 @@
         "
       >
         <span class="oxd-text oxd-text--span" style="color: #64748b">
-          Angka dari Excel masuk ke kolom Planned dan diakumulasi (upload ulang
-          akan menambah). Kolom Sisa = kuota yang belum terpakai.
+          Angka dari Excel masuk ke kolom Planned. Department yang sudah punya
+          kuota akan dilewati (tidak ditimpa). Kolom Sisa = kuota yang belum
+          terpakai.
         </span>
         <oxd-button
           display-type="secondary"
@@ -396,11 +397,11 @@
           <p class="oxd-text oxd-text--p" style="margin-top: 0">
             File <strong>.xlsx</strong> dengan kolom:
             <strong>branch, department, planned, year</strong> (urutan bebas,
-            maksimal 2 MB). Angka dari kolom <strong>planned</strong> masuk ke
-            kuota department dan <strong>DIAKUMULASI</strong> — upload ulang
-            akan menambah. Kalau department itu sudah punya
-            <strong>HRPLAN approved</strong> di Acumatica, kuota tersebut juga
-            ikut dihitung sebagai kapasitas.
+            maksimal 2 MB). Angka dari kolom <strong>planned</strong> mengisi
+            kuota department. Department yang
+            <strong>sudah punya kuota</strong> (upload sebelumnya atau HRPLAN
+            approved) akan <strong>dilewati</strong>, jadi data lama tidak
+            tertimpa.
           </p>
 
           <div style="display: flex; align-items: center; gap: 12px">
@@ -447,20 +448,17 @@
               <strong>{{ previewSummary.ok }}</strong> baris siap disimpan,
               <strong style="color: #a1281f">{{ previewSummary.error }}</strong>
               baris bermasalah (baris bermasalah dilewati).
-              <span v-if="previewSummary.existing > 0" style="color: #b45309">
+              <span v-if="previewSummary.skip > 0" style="color: #64748b">
                 &middot;
-                <strong>{{ previewSummary.existing }}</strong> department sudah
-                ada di database &mdash; angkanya akan
-                <strong>ditambahkan</strong> ke angka lama.
+                <strong>{{ previewSummary.skip }}</strong> baris
+                <strong>dilewati</strong> karena department-nya sudah punya
+                kuota.
               </span>
-              <span
-                v-if="previewSummary.with_approved > 0"
-                style="color: #b45309"
-              >
+              <span v-if="previewSummary.fill_empty > 0" style="color: #b45309">
                 &middot;
-                <strong>{{ previewSummary.with_approved }}</strong> department
-                sudah punya <strong>HRPLAN approved</strong> &mdash; kuota
-                upload akan <strong>ditambahkan</strong> ke situ.
+                <strong>{{ previewSummary.fill_empty }}</strong> baris
+                melengkapi department yang barisnya sudah ada tapi kuotanya
+                masih 0.
               </span>
             </p>
             <div style="max-height: 320px; overflow: auto">
@@ -596,7 +594,7 @@
                         {{ r.capacity_before || 0 }} &rarr;
                         {{ r.capacity_after || 0 }}
                       </span>
-                      <span v-else>-</span>
+                      <span v-else style="color: #94a3b8">&mdash;</span>
                     </td>
                     <td
                       style="padding: 8px 10px; font-size: 12px"
@@ -606,10 +604,17 @@
                     >
                       <template v-if="r.status === 'ok'">
                         OK
-                        <span v-if="r.exists" style="color: #b45309">
-                          &middot; diakumulasi
+                        <span v-if="r.row_exists" style="color: #b45309">
+                          &middot; isi kuota kosong
                         </span>
                       </template>
+                      <span
+                        v-else-if="r.status === 'skip'"
+                        style="color: #64748b"
+                        :title="r.message"
+                      >
+                        DILEWATI
+                      </span>
                       <span v-else>{{ r.message }}</span>
                     </td>
                   </tr>
@@ -704,6 +709,8 @@ export default {
         existing: 0,
         new: 0,
         with_approved: 0,
+        skip: 0,
+        fill_empty: 0,
       },
       uploadError: '',
       uploadResult: '',
@@ -1004,6 +1011,8 @@ export default {
         existing: 0,
         new: 0,
         with_approved: 0,
+        skip: 0,
+        fill_empty: 0,
       };
       this.uploadError = '';
       this.uploadResult = '';
@@ -1043,6 +1052,8 @@ export default {
         existing: 0,
         new: 0,
         with_approved: 0,
+        skip: 0,
+        fill_empty: 0,
       };
 
       if (!file) {
@@ -1096,6 +1107,8 @@ export default {
           existing: 0,
           new: 0,
           with_approved: 0,
+          skip: 0,
+          fill_empty: 0,
         };
       } catch (error) {
         console.error('Gagal preview upload kuota:', error);
@@ -1103,6 +1116,46 @@ export default {
       } finally {
         this.isPreviewing = false;
       }
+    },
+
+    // Keterangan baris yang dilewati, dipakai di popup hasil simpan.
+    skippedHtml(result) {
+      const detail = result.skipped_detail || [];
+      const jumlah = result.skipped_rows ?? detail.length;
+      if (!jumlah) {
+        return '';
+      }
+      const tampil = detail.slice(0, 10);
+      const daftar = tampil
+        .map((r) => {
+          const ket = [];
+          if (r.current_planned > 0) {
+            ket.push(`upload ${r.current_planned}`);
+          }
+          if (r.current_approved > 0) {
+            ket.push(`HRPLAN ${r.current_approved}`);
+          }
+          return (
+            `<div style="display:flex;gap:6px;margin-bottom:4px">` +
+            `<span style="flex:0 0 auto">&bull;</span>` +
+            `<span style="flex:1 1 auto"><b>${r.department}</b> ${r.year} ` +
+            `<span style="color:#92400e">(sudah punya ${ket.join(
+              ' + ',
+            )})</span>` +
+            `</span></div>`
+          );
+        })
+        .join('');
+      const lebih = jumlah - tampil.length;
+      return (
+        `<div style="margin-top:10px;padding:10px 12px;background:#f8fafc;` +
+        `border-radius:6px;font-size:12px;color:#475569;text-align:left">` +
+        `<div style="margin-bottom:6px"><b>${jumlah} baris dilewati</b> ` +
+        `(department sudah punya kuota):</div>` +
+        daftar +
+        (lebih > 0 ? `<div>&bull; ... dan ${lebih} baris lain</div>` : '') +
+        `</div>`
+      );
     },
 
     async saveUpload() {
@@ -1126,55 +1179,8 @@ export default {
         return;
       }
 
-      // Peringatan sebelum menyimpan: upload AKUMULATIF (menambah angka lama)
-      // dan kuota HRPLAN Acumatica yang sudah approved ikut jadi kapasitas.
-      const berisiko = this.previewRows.filter(
-        (r) => r.status === 'ok' && (r.exists || r.current_approved > 0),
-      );
-      if (berisiko.length > 0) {
-        const daftar = berisiko.slice(0, 10).map((r) => {
-          const ket = [];
-          if (r.exists) {
-            ket.push('ditambah ke angka lama');
-          }
-          if (r.current_approved > 0) {
-            ket.push(`termasuk HRPLAN ${r.current_approved}`);
-          }
-          return (
-            `<div style="display:flex;gap:6px;margin-bottom:5px">` +
-            `<span style="flex:0 0 auto">&bull;</span>` +
-            `<span style="flex:1 1 auto"><b>${r.department}</b> ${r.year}: ` +
-            `${r.capacity_before || 0} &rarr; ${r.capacity_after || 0} ` +
-            `<span style="color:#92400e">(${ket.join(', ')})</span></span>` +
-            `</div>`
-          );
-        });
-        const lebih = berisiko.length - 10;
-        const confirmed = await Swal.fire({
-          title: 'Perlu Diperhatikan',
-          icon: 'warning',
-          html:
-            `<div style="font-size:13px">${berisiko.length} department ` +
-            `sudah ada di database:</div>` +
-            `<div style="text-align:left;font-size:13px;line-height:1.8;` +
-            `margin-top:10px;padding:10px 12px;background:#f8fafc;` +
-            `border-radius:6px;max-height:220px;overflow-y:auto">` +
-            daftar.join('') +
-            (lebih > 0
-              ? `<div>&bull; ... dan ${lebih} department lain</div>`
-              : '') +
-            `</div>` +
-            `<div style="margin-top:12px;font-size:12px;color:#64748b">` +
-            `Angka upload <b>DIAKUMULASI</b> ke kuota yang sudah ada.</div>`,
-          showCancelButton: true,
-          confirmButtonText: 'Lanjut simpan',
-          cancelButtonText: 'Batal',
-          reverseButtons: true,
-        });
-        if (!confirmed.isConfirmed) {
-          return;
-        }
-      }
+      // Tidak perlu dialog konfirmasi: department yang sudah punya kuota otomatis
+      // DILEWATI, jadi tidak ada data lama yang tertimpa.
 
       this.isSaving = true;
       this.uploadError = '';
@@ -1223,10 +1229,11 @@ export default {
             `<div style="margin-top:10px;padding:10px 12px;background:#f0fdf4;` +
             `border-radius:6px;font-size:13px;color:#166534">` +
             `${result.new_rows ?? 0} department baru &middot; ` +
-            `${result.replaced_rows ?? 0} ditambahkan ke angka lama<br>` +
+            `${result.filled_rows ?? 0} melengkapi baris kosong<br>` +
             `Total planned masuk: <b>${totalMasuk}</b> orang ` +
             `&middot; ${result.departments ?? 0} department` +
             `</div>` +
+            this.skippedHtml(result) +
             `<div style="margin-top:10px;font-size:12px;color:#64748b">` +
             `Tabel History Quota sudah diperbarui.</div>`,
           confirmButtonText: 'Selesai',
