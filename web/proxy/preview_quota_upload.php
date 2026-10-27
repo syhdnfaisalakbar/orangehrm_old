@@ -102,7 +102,7 @@ try {
         $row['exists'] = false;      // true = dept+tahun ini sudah ada di DB -> upload akan menimpa
         $row['current_approved'] = 0; // HRPLAN Acumatica approved (ikut jadi kapasitas)
         $row['capacity_before'] = 0;  // planned + approved sebelum upload
-        $row['capacity_after'] = 0;   // (total person di file) + approved
+        $row['capacity_after'] = 0;   // planned + approved SETELAH upload (akumulatif)
 
         if ($row['status'] !== 'ok') {
             continue;
@@ -117,7 +117,7 @@ try {
         }
         $row['current_approved'] = quota_approved_for($pdo, (string) $row['department'], (int) $row['year']);
         $row['capacity_before'] = $row['current_planned'] + $row['current_approved'];
-        $row['capacity_after'] = (int) $row['total_person'] + $row['current_approved'];
+        $row['capacity_after'] = $row['capacity_before'] + (int) $row['total_person'];
     }
     unset($row);
 } catch (Throwable $e) {

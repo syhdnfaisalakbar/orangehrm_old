@@ -67,9 +67,8 @@
         "
       >
         <span class="oxd-text oxd-text--span" style="color: #64748b">
-          Angka dari Excel masuk ke kolom Planned dan menggantikan angka
-          sebelumnya (tidak diakumulasi). Kolom Sisa = kuota yang belum
-          terpakai.
+          Angka dari Excel masuk ke kolom Planned dan diakumulasi (upload ulang
+          akan menambah). Kolom Sisa = kuota yang belum terpakai.
         </span>
         <oxd-button
           display-type="secondary"
@@ -398,10 +397,10 @@
             File <strong>.xlsx</strong> dengan kolom:
             <strong>branch, department, total person, year</strong> (urutan
             bebas, maksimal 2 MB). Angka masuk ke kolom
-            <strong>Planned</strong> dan <strong>menggantikan</strong> angka
-            upload sebelumnya. Kalau department itu sudah punya
-            <strong>HRPLAN approved</strong> di Acumatica, angka upload
-            <strong>ditambahkan</strong> ke kuota tersebut.
+            <strong>Planned</strong> dan <strong>DIAKUMULASI</strong> — upload
+            ulang akan menambah. Kalau department itu sudah punya
+            <strong>HRPLAN approved</strong> di Acumatica, kuota tersebut juga
+            ikut dihitung sebagai kapasitas.
           </p>
 
           <div style="display: flex; align-items: center; gap: 12px">
@@ -451,7 +450,8 @@
               <span v-if="previewSummary.existing > 0" style="color: #b45309">
                 &middot;
                 <strong>{{ previewSummary.existing }}</strong> department sudah
-                ada di database &mdash; angkanya akan <strong>ditimpa</strong>.
+                ada di database &mdash; angkanya akan
+                <strong>ditambahkan</strong> ke angka lama.
               </span>
               <span
                 v-if="previewSummary.with_approved > 0"
@@ -607,7 +607,7 @@
                       <template v-if="r.status === 'ok'">
                         OK
                         <span v-if="r.exists" style="color: #b45309">
-                          &middot; menimpa
+                          &middot; diakumulasi
                         </span>
                       </template>
                       <span v-else>{{ r.message }}</span>
@@ -1119,8 +1119,8 @@ export default {
         return;
       }
 
-      // Peringatan sebelum menyimpan: angka bisa MENIMPA data lama dan/atau
-      // DITAMBAHKAN ke kuota HRPLAN Acumatica yang sudah approved.
+      // Peringatan sebelum menyimpan: upload AKUMULATIF (menambah angka lama)
+      // dan kuota HRPLAN Acumatica yang sudah approved ikut jadi kapasitas.
       const berisiko = this.previewRows.filter(
         (r) => r.status === 'ok' && (r.exists || r.current_approved > 0),
       );
@@ -1130,10 +1130,10 @@ export default {
           .map((r) => {
             const ket = [];
             if (r.exists) {
-              ket.push('angka lama ditimpa');
+              ket.push('ditambah ke angka lama');
             }
             if (r.current_approved > 0) {
-              ket.push(`ditambah HRPLAN ${r.current_approved}`);
+              ket.push(`termasuk HRPLAN ${r.current_approved}`);
             }
             return `- ${r.department} ${r.year}: ${r.capacity_before || 0} -> ${
               r.capacity_after || 0
