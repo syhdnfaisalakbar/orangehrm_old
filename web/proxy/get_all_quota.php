@@ -29,12 +29,14 @@ try {
             q.id,
             q.dept_name,
             q.year,
-            TRIM(COALESCE(approved.branch, dept_branch.branch, '-')) AS branch,
+            TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(q.branch), ''), '-')) AS branch,
             q.total_additional,
+            COALESCE(q.manual_total, 0) AS manual_total,
             q.replacement,
             q.reduction,
             q.unplanned,
-            COALESCE(approved.planned_count, 0) AS planned
+            COALESCE(approved.planned_count, 0) AS planned,
+            (COALESCE(q.total_additional, 0) + COALESCE(q.manual_total, 0) - COALESCE(approved.planned_count, 0)) AS sisa
         FROM ohrm_ext_department_quota q
         LEFT JOIN (
             SELECT
@@ -81,6 +83,8 @@ try {
     // Cast planned to integer (COALESCE returns string from PDO)
     foreach ($data as &$row) {
         $row['planned'] = (int) $row['planned'];
+        $row['manual_total'] = (int) $row['manual_total'];
+        $row['sisa'] = (int) $row['sisa'];
         $row['branch']  = trim((string) $row['branch']);
     }
     unset($row);

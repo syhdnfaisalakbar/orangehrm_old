@@ -55,6 +55,29 @@
         @delete="onClickDeleteSelected"
       ></table-header>
 
+      <!-- Toolbar: Upload Excel (menambah kuota manual, akumulatif) -->
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 0 1rem 0.75rem 1rem;
+          flex-wrap: wrap;
+        "
+      >
+        <span class="oxd-text oxd-text--span" style="color: #64748b">
+          Angka dari Excel masuk ke kolom Manual dan diakumulasi. Kolom Sisa =
+          kuota yang belum terpakai.
+        </span>
+        <oxd-button
+          display-type="secondary"
+          label="Upload Excel"
+          icon-name="upload"
+          @click="openUploadModal"
+        />
+      </div>
+
       <!-- Tabel Utama -->
       <div class="orangehrm-container">
         <oxd-card-table
@@ -306,6 +329,231 @@
         </div>
       </div>
     </div>
+
+    <!-- ============================================== -->
+    <!-- MODAL UPLOAD EXCEL KUOTA (tambah manual)         -->
+    <!-- ============================================== -->
+    <div
+      v-if="showUploadModal"
+      style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.6);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background-color: #ffffff;
+          width: 900px;
+          max-width: 96%;
+          max-height: 90vh;
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        "
+      >
+        <!-- Header -->
+        <div
+          style="
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <h6 class="oxd-text oxd-text--h6" style="margin: 0">
+            Upload Kuota Excel
+          </h6>
+          <button
+            style="
+              background: none;
+              border: none;
+              cursor: pointer;
+              font-size: 1.5rem;
+              color: #64748b;
+              line-height: 1;
+              padding: 0;
+            "
+            @click="closeUploadModal"
+          >
+            &times;
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 1rem 1.5rem; overflow-y: auto">
+          <p class="oxd-text oxd-text--p" style="margin-top: 0">
+            File <strong>.xlsx</strong> dengan kolom:
+            <strong>branch, department, total person, year</strong> (urutan
+            bebas, maksimal 2 MB). Angka disimpan sebagai kuota manual dan
+            <strong>diakumulasi</strong> — upload ulang akan menambah.
+          </p>
+
+          <div style="display: flex; align-items: center; gap: 12px">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              :disabled="isPreviewing || isSaving"
+              @change="onFileChange"
+            />
+            <span
+              v-if="selectedFileName"
+              class="oxd-text oxd-text--span"
+              style="color: #004e8c"
+              >{{ selectedFileName }}</span
+            >
+          </div>
+
+          <div
+            v-if="isPreviewing"
+            style="padding: 16px 0; color: #64748b"
+            class="oxd-text oxd-text--p"
+          >
+            Membaca file...
+          </div>
+
+          <div
+            v-if="uploadError"
+            style="
+              margin-top: 12px;
+              padding: 10px 12px;
+              background: #fdecea;
+              border: 1px solid #f5c2c0;
+              border-radius: 6px;
+              color: #a1281f;
+            "
+            class="oxd-text oxd-text--p"
+          >
+            {{ uploadError }}
+          </div>
+
+          <div v-if="previewRows.length > 0" style="margin-top: 12px">
+            <p class="oxd-text oxd-text--p" style="margin-bottom: 8px">
+              <strong>{{ previewSummary.ok }}</strong> baris siap disimpan,
+              <strong style="color: #a1281f">{{ previewSummary.error }}</strong>
+              baris bermasalah (baris bermasalah dilewati).
+            </p>
+            <div style="max-height: 320px; overflow: auto">
+              <table
+                class="oxd-table"
+                style="
+                  width: 100%;
+                  border-collapse: collapse;
+                  border: 1px solid #ced4da;
+                "
+              >
+                <thead style="background-color: #f4f6f8">
+                  <tr>
+                    <th style="padding: 8px; text-align: center">Baris</th>
+                    <th style="padding: 8px; text-align: left">Branch</th>
+                    <th style="padding: 8px; text-align: left">Department</th>
+                    <th style="padding: 8px; text-align: center">Year</th>
+                    <th style="padding: 8px; text-align: center">
+                      Total Person
+                    </th>
+                    <th style="padding: 8px; text-align: center">
+                      Manual sekarang
+                    </th>
+                    <th style="padding: 8px; text-align: left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="r in previewRows"
+                    :key="'up-' + r.row"
+                    style="border-bottom: 1px solid #e2e8f0"
+                    :style="
+                      r.status === 'error' ? 'background-color: #fdf2f2' : ''
+                    "
+                  >
+                    <td style="padding: 8px; text-align: center">
+                      {{ r.row }}
+                    </td>
+                    <td style="padding: 8px">{{ r.branch || '-' }}</td>
+                    <td style="padding: 8px">{{ r.department || '-' }}</td>
+                    <td style="padding: 8px; text-align: center">
+                      {{ r.year || '-' }}
+                    </td>
+                    <td style="padding: 8px; text-align: center">
+                      {{ r.total_person }}
+                    </td>
+                    <td style="padding: 8px; text-align: center">
+                      <span v-if="r.status === 'ok'">
+                        {{ r.current_manual }} &rarr;
+                        {{ r.current_manual + r.total_person }}
+                      </span>
+                      <span v-else>-</span>
+                    </td>
+                    <td
+                      style="padding: 8px"
+                      :style="
+                        r.status === 'ok' ? 'color:#1e8e3e' : 'color:#a1281f'
+                      "
+                    >
+                      {{ r.status === 'ok' ? 'OK' : r.message }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div
+            v-if="uploadResult"
+            style="
+              margin-top: 12px;
+              padding: 10px 12px;
+              background: #e6f4ea;
+              border: 1px solid #b7e1c1;
+              border-radius: 6px;
+              color: #1e8e3e;
+            "
+            class="oxd-text oxd-text--p"
+          >
+            {{ uploadResult }}
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div
+          style="
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+          "
+        >
+          <oxd-button
+            display-type="ghost"
+            label="Tutup"
+            @click="closeUploadModal"
+          />
+          <oxd-button
+            v-if="previewRows.length > 0"
+            display-type="secondary"
+            :label="
+              isSaving ? 'Menyimpan...' : `Simpan ${previewSummary.ok} baris`
+            "
+            :disabled="isSaving || previewSummary.ok === 0"
+            @click="saveUpload"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -332,6 +580,17 @@ export default {
       selectedDept: null,
       deptCases: [], // Menyimpan rincian case dari Acumatica
 
+      // --- STATE UNTUK MODAL UPLOAD EXCEL ---
+      showUploadModal: false,
+      selectedFileName: '',
+      selectedFile: null,
+      isPreviewing: false,
+      isSaving: false,
+      previewRows: [],
+      previewSummary: {total: 0, ok: 0, error: 0},
+      uploadError: '',
+      uploadResult: '',
+
       // Definisi Kolom (Header) Tabel
       headers: [
         {name: 'dept_name', title: 'Department', style: {flex: 1.5}},
@@ -342,6 +601,8 @@ export default {
           title: 'Planned',
           style: {flex: 2},
         },
+        {name: 'manual_total', title: 'Manual', style: {flex: 1}},
+        {name: 'sisa', title: 'Sisa', style: {flex: 1}},
         {name: 'replacement', title: 'Replacement', style: {flex: 1}},
         {name: 'reduction', title: 'Reduction', style: {flex: 1}},
         {name: 'unplanned', title: 'Unplanned', style: {flex: 1}},
@@ -420,6 +681,8 @@ export default {
             branch: item.branch || '-',
             planned: item.planned,
             total_additional: item.total_additional,
+            manual_total: item.manual_total || 0,
+            sisa: item.sisa || 0,
             replacement: item.replacement,
             reduction: item.reduction,
             unplanned: item.unplanned,
@@ -596,6 +859,165 @@ export default {
       this.showModal = false;
       this.selectedDept = null;
       this.deptCases = [];
+    },
+
+    // ==========================================
+    // UPLOAD EXCEL KUOTA (tambah manual, akumulatif)
+    // Preview dulu, baru simpan — supaya data kuota tidak
+    // masuk setengah-setengah tanpa terlihat.
+    // ==========================================
+    openUploadModal() {
+      this.resetUploadState();
+      this.showUploadModal = true;
+    },
+
+    closeUploadModal() {
+      this.showUploadModal = false;
+      this.resetUploadState();
+    },
+
+    resetUploadState() {
+      this.selectedFileName = '';
+      this.selectedFile = null;
+      this.previewRows = [];
+      this.previewSummary = {total: 0, ok: 0, error: 0};
+      this.uploadError = '';
+      this.uploadResult = '';
+      const input = this.$refs.fileInput;
+      if (input) {
+        input.value = '';
+      }
+    },
+
+    // Nama user untuk log audit. appGlobal hanya berisi baseUrl/publicPath,
+    // jadi diambil dari localStorage kalau ada; kalau tidak, pakai 'OrangeHRM user'.
+    currentUserName() {
+      try {
+        for (const key of Object.keys(window.localStorage || {})) {
+          if (key.toLowerCase().includes('user')) {
+            const raw = window.localStorage.getItem(key);
+            if (raw && raw.length < 120) {
+              return raw;
+            }
+          }
+        }
+      } catch (e) {
+        // localStorage bisa diblokir; abaikan
+      }
+      return 'OrangeHRM user';
+    },
+
+    onFileChange(event) {
+      const file = event.target.files && event.target.files[0];
+      this.uploadError = '';
+      this.uploadResult = '';
+      this.previewRows = [];
+      this.previewSummary = {total: 0, ok: 0, error: 0};
+
+      if (!file) {
+        this.selectedFileName = '';
+        this.selectedFile = null;
+        return;
+      }
+
+      this.selectedFile = file;
+      this.selectedFileName = file.name;
+
+      if (!/\.xlsx$/i.test(file.name)) {
+        this.uploadError =
+          'Hanya file .xlsx. Kalau file masih .xls, buka di Excel lalu Save As ke .xlsx.';
+        return;
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        this.uploadError = 'Ukuran file melebihi 2 MB.';
+        return;
+      }
+
+      this.previewUpload();
+    },
+
+    async previewUpload() {
+      if (!this.selectedFile) {
+        return;
+      }
+      this.isPreviewing = true;
+      this.uploadError = '';
+      const form = new FormData();
+      form.append('file', this.selectedFile);
+      form.append('uploaded_by', this.currentUserName());
+
+      try {
+        const response = await fetch(
+          this.getBaseUrl() + '/proxy/preview_quota_upload.php',
+          {method: 'POST', body: form},
+        );
+        const result = await response.json();
+
+        if (result.status !== 'success') {
+          this.uploadError = result.message || 'Gagal membaca file.';
+          return;
+        }
+        this.previewRows = result.rows || [];
+        this.previewSummary = result.summary || {
+          total: this.previewRows.length,
+          ok: 0,
+          error: 0,
+        };
+      } catch (error) {
+        console.error('Gagal preview upload kuota:', error);
+        this.uploadError = 'Tidak bisa menghubungi server untuk membaca file.';
+      } finally {
+        this.isPreviewing = false;
+      }
+    },
+
+    async saveUpload() {
+      const rows = this.previewRows
+        .filter((r) => r.status === 'ok')
+        .map((r) => ({
+          row: r.row,
+          branch: r.branch,
+          department: r.department,
+          year: r.year,
+          total_person: r.total_person,
+        }));
+
+      if (rows.length === 0) {
+        this.uploadError = 'Tidak ada baris valid untuk disimpan.';
+        return;
+      }
+
+      this.isSaving = true;
+      this.uploadError = '';
+      try {
+        const response = await fetch(
+          this.getBaseUrl() + '/proxy/save_quota_upload.php',
+          {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              uploaded_by: this.currentUserName(),
+              file_name: this.selectedFileName,
+              rows,
+            }),
+          },
+        );
+        const result = await response.json();
+
+        if (result.status !== 'success') {
+          this.uploadError = result.message || 'Gagal menyimpan data.';
+          return;
+        }
+
+        this.uploadResult = result.message;
+        await this.fetchQuotaData();
+      } catch (error) {
+        console.error('Gagal menyimpan upload kuota:', error);
+        this.uploadError =
+          'Tidak bisa menghubungi server untuk menyimpan data.';
+      } finally {
+        this.isSaving = false;
+      }
     },
   },
 };

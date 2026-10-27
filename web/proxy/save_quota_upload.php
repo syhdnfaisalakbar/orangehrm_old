@@ -1,0 +1,147 @@
+<?php
+/**
+ * save_quota_upload.php — simpan hasil upload Excel kuota ke database lokal.
+ *
+ * POST application/json
+ *   {
+ *     "uploaded_by": "Nama User",
+ *     "file_name":   "kuota-2026.xlsx",
+ *     "rows": [ {"department":"FNA","year":2026,"total_person":5,"branch":"JKT"}, ... ]
+ *   }
+ *
+ * Sifat penulisan: AKUMULATIF (sesuai keputusan Pak).
+ *   manual_total = manual_total + total_person
+ *   Upload ulang untuk department+tahun yang sama akan MENAMBAH, bukan mengganti.
+ *   Karena itu UI wajib menampilkan pratinjau "sebelum -> sesudah" sebelum tombol simpan.
+ *
+ * Yang TIDAK disentuh: total_additional (milik sync Acumatica), replacement,
+ * reduction, unplanned. save_quota.php tetap boleh menimpa kolom-kolom itu tanpa
+ * menghapus angka upload.
+ */
+
+require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_guard.php';
+require_once __DIR__ . '/_quota_upload_lib.php';
+
+header('Content-Type: application/json');
+header('Cache-Control: no-store');
+
+$fail = static function (string $message, int $code = 400): void {
+    http_response_code($code);
+    echo json_encode(['status' => 'error', 'message' => $message]);
+    exit;
+};
+
+if ($err = proxy_require_post()) {
+    $fail($err, 405);
+}
+if ($err = proxy_require_same_origin()) {
+    $fail($err, 403);
+}
+
+$payload = json_decode(file_get_contents('php://input'), true);
+if (!is_array($payload) || empty($payload['rows']) || !is_array($payload['rows'])) {
+    $fail('Payload tidak berisi baris data.');
+}
+
+$fileName = preg_replace('/[^\p{L}\p{N} ._@-]/u', '', (string) ($payload['file_name'] ?? ''));
+$fileName = mb_substr(trim($fileName), 0, 255);
+$userName = preg_replace('/[^\p{L}\p{N} ._@-]/u', '', (string) ($payload['uploaded_by'] ?? 'unknown'));
+$userName = mb_substr(trim($userName) !== '' ? trim($userName) : 'unknown', 0, 100);
+
+// Validasi ulang di server dengan aturan yang sama seperti preview.
+$map = ['branch' => 0, 'department' => 1, 'year' => 2, 'total_person' => 3];
+$maxYear = (int) date('Y') + 2;
+$seen = [];
+$accepted = [];
+$errors = [];
+
+foreach ($payload['rows'] as $idx => $row) {
+    $cells = [
+        0 => (string) ($row['branch'] ?? ''),
+        1 => (string) ($row['department'] ?? ''),
+        2 => (string) ($row['year'] ?? ''),
+        3 => (string) ($row['total_person'] ?? ''),
+    ];
+    $checked = quota_validate_row($cells, $map, (int) ($row['row'] ?? ($idx + 1)), $seen, $maxYear);
+    if ($checked['status'] === 'ok') {
+        $accepted[] = $checked;
+    } else {
+        $errors[] = ['row' => $checked['row'], 'message' => $checked['message']];
+    }
+}
+
+if (empty($accepted)) {
+    echo json_encode([
+        'status' => 'error',
+        'message' => 'Tidak ada baris valid untuk disimpan.',
+        'errors' => $errors,
+    ]);
+    exit;
+}
+
+try {
+    $pdo = new PDO(
+        'mysql:host=' . PROXY_DB_HOST . ';dbname=' . PROXY_DB_NAME . ';charset=utf8',
+        PROXY_DB_USER,
+        PROXY_DB_PASS
+    );
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO ohrm_ext_department_quota
+             (dept_name, year, total_additional, replacement, reduction, unplanned,
+              manual_total, branch, manual_updated_at)
+         VALUES (:dept, :year, 0, 0, 0, 0, :total, :branch, NOW())
+         ON DUPLICATE KEY UPDATE
+             manual_total      = manual_total + VALUES(manual_total),
+             branch            = IF(branch IS NULL OR branch = "", VALUES(branch), branch),
+             manual_updated_at = NOW()'
+    );
+
+    $pdo->beginTransaction();
+    $savedRows = 0;
+    $savedTotal = 0;
+    $affectedDepts = [];
+
+    foreach ($accepted as $row) {
+        $stmt->execute([
+            ':dept' => $row['department'],
+            ':year' => $row['year'],
+            ':total' => $row['total_person'],
+            ':branch' => $row['branch'] !== '' ? $row['branch'] : null,
+        ]);
+        $savedRows++;
+        $savedTotal += (int) $row['total_person'];
+        $affectedDepts[mb_strtolower($row['department']) . '|' . $row['year']] = true;
+    }
+
+    $pdo->commit();
+
+    $log = sprintf(
+        "[%s] user=%s file=%s baris=%d total_person=%d dept=%d ip=%s\n",
+        date('Y-m-d H:i:s'),
+        $userName,
+        $fileName !== '' ? $fileName : '(tanpa nama)',
+        $savedRows,
+        $savedTotal,
+        count($affectedDepts),
+        $_SERVER['REMOTE_ADDR'] ?? '-'
+    );
+    @file_put_contents(__DIR__ . '/quota_upload_log.txt', $log, FILE_APPEND | LOCK_EX);
+
+    echo json_encode([
+        'status' => 'success',
+        'message' => sprintf('%d baris tersimpan (%d department/tahun).', $savedRows, count($affectedDepts)),
+        'saved_rows' => $savedRows,
+        'saved_total_person' => $savedTotal,
+        'departments' => count($affectedDepts),
+        'skipped' => $errors,
+    ]);
+} catch (Throwable $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => 'Gagal menyimpan: ' . $e->getMessage()]);
+}
