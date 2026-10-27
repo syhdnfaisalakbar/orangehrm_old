@@ -58,7 +58,17 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
         SELECT
             m.dept_name,
             :year AS year,
-            (COALESCE(pl.planned, 0) + COALESCE(qq.replacement, 0) + COALESCE(qq.unplanned, 0) - COALESCE(qq.reduction, 0)) AS quota_akhir,
+            /* quota_akhir — disamakan dengan layar Resource Fulfillments
+               (get_resource_fulfillment.php, revisi 2026-10-27):
+                 ada baris kuota  -> total_additional + planned(upload) + replacement
+                                     + unplanned - reduction
+                 belum ada baris  -> fallback SUM(tot_person) MPR yang approval
+                                     terakhirnya Completed/Approved */
+            (CASE WHEN qq.id IS NULL THEN COALESCE(mpr.quota_sum, 0)
+                  ELSE (COALESCE(qq.total_additional, 0) + COALESCE(qq.planned, 0)
+                        + COALESCE(qq.replacement, 0) + COALESCE(qq.unplanned, 0)
+                        - COALESCE(qq.reduction, 0))
+             END) AS quota_akhir,
             COALESCE(h.hired_count, 0)     AS terpenuhi,
             COALESCE(v.open_positions, 0)  AS lowongan_berjalan
         FROM (
@@ -69,29 +79,31 @@ function getDeptFulfillment(PDO $pdo, string $deptName, int $year): ?array
             LIMIT 1
         ) m
         LEFT JOIN (
-            -- planned (All Quota Department): SUM tot_person approved HRPLAN utk dept+yr
-            SELECT TRIM(attr_dept.attribute_value) AS dept_name,
-                   CAST(attr_year.attribute_value AS UNSIGNED) AS yr,
-                   SUM(CAST(attr_tot.attribute_value AS UNSIGNED)) AS planned
-            FROM ohrm_quota_requests qr
-            INNER JOIN (
-                SELECT ref_note_id, approval_status,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY ref_note_id
-                           ORDER BY FIELD(approval_status, 'Completed', 'Open', 'Rejected') ASC,
-                                    approval_id DESC
-                       ) AS rn
-                FROM ohrm_approval_history
-            ) la ON la.ref_note_id = qr.note_id AND la.rn = 1
-            INNER JOIN ohrm_case_attributes attr_dept ON attr_dept.ref_note_id = qr.note_id AND attr_dept.attribute_name = 'DEPARTMENT'
-            INNER JOIN ohrm_case_attributes attr_year ON attr_year.ref_note_id = qr.note_id AND attr_year.attribute_name = 'YEAR'
-            INNER JOIN ohrm_case_attributes attr_tot ON attr_tot.ref_note_id = qr.note_id AND attr_tot.attribute_name = 'TOTPERSON'
-            WHERE la.approval_status = 'Completed'
-            GROUP BY TRIM(attr_dept.attribute_value), CAST(attr_year.attribute_value AS UNSIGNED)
-        ) pl ON pl.dept_name = m.dept_name AND pl.yr = :year
+            -- fallback kalau (dept,tahun) belum punya baris kuota sama sekali
+            SELECT TRIM(mr.department) AS dept_name,
+                   YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at)) AS yr,
+                   SUM(COALESCE(mr.tot_person, 0)) AS quota_sum
+            FROM ohrm_manpower_request mr
+            WHERE mr.status <> 'Rejected'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ohrm_manpower_approval ac
+                  WHERE ac.case_id = mr.case_id
+                    AND ac.id = (
+                        SELECT MAX(ac2.id)
+                        FROM ohrm_manpower_approval ac2
+                        WHERE ac2.case_id = mr.case_id
+                    )
+                    AND UPPER(COALESCE(ac.status, '')) IN ('COMPLETED', 'APPROVED')
+              )
+            GROUP BY TRIM(mr.department), YEAR(COALESCE(NULLIF(mr.target_date, '0000-00-00'), mr.created_at))
+        ) mpr ON mpr.dept_name = m.dept_name AND mpr.yr = :year
         LEFT JOIN (
-            -- kolom kuota dept (All Quota Department): replacement/unplanned/reduction
-            SELECT TRIM(dept_name) AS dept_name, year,
+            -- kolom kuota dept (All Quota Department): total_additional, planned(upload),
+            -- replacement, unplanned, reduction
+            SELECT id, TRIM(dept_name) AS dept_name, year,
+                   COALESCE(total_additional, 0) AS total_additional,
+                   COALESCE(planned, 0)          AS planned,
                    COALESCE(replacement, 0) AS replacement,
                    COALESCE(unplanned, 0)   AS unplanned,
                    COALESCE(reduction, 0)   AS reduction

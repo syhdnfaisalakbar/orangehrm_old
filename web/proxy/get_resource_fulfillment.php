@@ -7,9 +7,12 @@ require_once __DIR__ . '/_config.php';
  * GET /proxy/get_resource_fulfillment.php?year=2026 → filter tahun
  *
  * Kolom (keputusan 2026-09-01, REVISI oleh Faisal):
- *   quota_akhir        = total_additional + replacement - reduction
- *                        (ohrm_ext_department_quota). Planned IKUT dihitung.
- *                        Contoh: IT 2026 planned 1 + replacement 2 = 3.
+ *   quota_akhir        = total_additional + planned + replacement + unplanned - reduction
+ *                        (ohrm_ext_department_quota).
+ *                        `planned` DI SINI = kolom planned hasil upload Excel
+ *                        (History Quota Department, 2026-10-27) — bukan SUM(tot_person)
+ *                        MPR. planned uppercase (MPR) tidak dihitung di sini.
+ *                        Contoh: IT 2026 total_additional 0 + planned(upload) 1 = 1.
  *                        (Sejenak diubah ke SUM(mr.tot_person) MPR saja, tapi
  *                        user minta planned dihitung lagi → balik ke rumus ini.
  *                        Double-count replacement sudah diperbaiki: VacancyAPI
@@ -58,7 +61,9 @@ try {
     $year = isset($_GET['year']) ? intval($_GET['year']) : 0;
 
     // Ekspresi quota berulang — biar SQL di bawah lebih pendek.
-    $QUOTA = '(COALESCE(q.total_additional, 0) + COALESCE(q.replacement, 0) + COALESCE(q.unplanned, 0) - COALESCE(q.reduction, 0))';
+    // 2026-10-27: kolom `planned` (hasil upload Excel di History Quota Department)
+    // ikut dihitung sebagai kapasitas, sama dengan get_all_quota.php & save_manpower.php.
+    $QUOTA = '(COALESCE(q.total_additional, 0) + COALESCE(q.planned, 0) + COALESCE(q.replacement, 0) + COALESCE(q.unplanned, 0) - COALESCE(q.reduction, 0))';
 
     // Hybrid (keputusan user 2026-09-09): kalau TIDAK ada baris kuota untuk
     // (dept,tahun) → quota_akhir = SUM(tot_person) MPR dept+thn itu (dari subquery
@@ -70,7 +75,7 @@ try {
             COALESCE(q.id, 0) AS id,
             s.dept_name,
             s.year,
-            COALESCE(q.total_additional, 0) AS planned,
+            (COALESCE(q.total_additional, 0) + COALESCE(q.planned, 0)) AS planned,
             COALESCE(q.replacement, 0) AS replacement,
             COALESCE(q.reduction, 0) AS reduction,
             COALESCE(q.unplanned, 0) AS unplanned,
