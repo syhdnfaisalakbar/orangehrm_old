@@ -395,10 +395,10 @@
         <div style="padding: 1rem 1.5rem; overflow-y: auto">
           <p class="oxd-text oxd-text--p" style="margin-top: 0">
             File <strong>.xlsx</strong> dengan kolom:
-            <strong>branch, department, total person, year</strong> (urutan
-            bebas, maksimal 2 MB). Angka masuk ke kolom
-            <strong>Planned</strong> dan <strong>DIAKUMULASI</strong> — upload
-            ulang akan menambah. Kalau department itu sudah punya
+            <strong>branch, department, planned, year</strong> (urutan bebas,
+            maksimal 2 MB). Angka dari kolom <strong>planned</strong> masuk ke
+            kuota department dan <strong>DIAKUMULASI</strong> — upload ulang
+            akan menambah. Kalau department itu sudah punya
             <strong>HRPLAN approved</strong> di Acumatica, kuota tersebut juga
             ikut dihitung sebagai kapasitas.
           </p>
@@ -515,7 +515,7 @@
                         white-space: nowrap;
                       "
                     >
-                      Total Person
+                      Planned (file)
                     </th>
                     <th
                       style="
@@ -573,7 +573,7 @@
                       {{ r.year || '-' }}
                     </td>
                     <td style="padding: 8px 10px; text-align: right">
-                      {{ r.total_person }}
+                      {{ r.planned }}
                     </td>
                     <td
                       style="padding: 8px 10px; text-align: right"
@@ -1111,7 +1111,7 @@ export default {
           branch: r.branch,
           department: r.department,
           year: r.year,
-          total_person: r.total_person,
+          planned: r.planned,
         }));
 
       if (rows.length === 0) {

@@ -8,7 +8,7 @@
  *
  * Response JSON:
  *   {status:'success', header_row, summary:{total,ok,error}, rows:[...]}
- *   rows[] = {row, branch, department, year, total_person, status, message,
+ *   rows[] = {row, branch, department, year, planned, total_person, status, message,
  *             current_manual, current_total_additional}   // current_* untuk info "sebelum -> sesudah"
  */
 
@@ -117,7 +117,7 @@ try {
         }
         $row['current_approved'] = quota_approved_for($pdo, (string) $row['department'], (int) $row['year']);
         $row['capacity_before'] = $row['current_planned'] + $row['current_approved'];
-        $row['capacity_after'] = $row['capacity_before'] + (int) $row['total_person'];
+        $row['capacity_after'] = $row['capacity_before'] + (int) $row['planned'];
     }
     unset($row);
 } catch (Throwable $e) {

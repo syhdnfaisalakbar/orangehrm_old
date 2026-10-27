@@ -6,11 +6,11 @@
  *   {
  *     "uploaded_by": "Nama User",
  *     "file_name":   "kuota-2026.xlsx",
- *     "rows": [ {"department":"FNA","year":2026,"total_person":5,"branch":"JKT"}, ... ]
+ *     "rows": [ {"department":"FNA","year":2026,"planned":5,"branch":"JKT"}, ... ]
  *   }
  *
  * Sifat penulisan: AKUMULATIF ke ohrm_ext_department_quota.planned.
- *   planned = planned + total_person  (upload ulang untuk dept+tahun yang sama MENAMBAH)
+ *   planned = planned + planned(file)  (upload ulang untuk dept+tahun yang sama MENAMBAH)
  *   Jadi satu baris per department+tahun; angka langsung tampil di kolom "Planned"
  *   pada History Quota Department.
  *   Karena itu UI wajib menampilkan pratinjau "sebelum -> jadi" sebelum menyimpan.
@@ -51,7 +51,7 @@ $userName = preg_replace('/[^\p{L}\p{N} ._@-]/u', '', (string) ($payload['upload
 $userName = mb_substr(trim($userName) !== '' ? trim($userName) : 'unknown', 0, 100);
 
 // Validasi ulang di server dengan aturan yang sama seperti preview.
-$map = ['branch' => 0, 'department' => 1, 'year' => 2, 'total_person' => 3];
+$map = ['branch' => 0, 'department' => 1, 'year' => 2, 'planned' => 3];
 $maxYear = (int) date('Y') + 2;
 $seen = [];
 $accepted = [];
@@ -62,7 +62,8 @@ foreach ($payload['rows'] as $idx => $row) {
         0 => (string) ($row['branch'] ?? ''),
         1 => (string) ($row['department'] ?? ''),
         2 => (string) ($row['year'] ?? ''),
-        3 => (string) ($row['total_person'] ?? ''),
+        // `planned` = nama baru; `total_person` = payload bundle lama
+        3 => (string) ($row['planned'] ?? $row['total_person'] ?? ''),
     ];
     $checked = quota_validate_row($cells, $map, (int) ($row['row'] ?? ($idx + 1)), $seen, $maxYear);
     if ($checked['status'] === 'ok') {
@@ -121,10 +122,10 @@ try {
             ':dept' => $row['department'],
             ':year' => $row['year'],
             ':branch' => $row['branch'] !== '' ? $row['branch'] : null,
-            ':planned' => $row['total_person'],
+            ':planned' => $row['planned'],
         ]);
         $savedRows++;
-        $savedTotal += (int) $row['total_person'];
+        $savedTotal += (int) $row['planned'];
         if ($alreadyExists) {
             $replacedRows++;
         }
@@ -134,7 +135,7 @@ try {
     $pdo->commit();
 
     $log = sprintf(
-        "[%s] user=%s file=%s baris=%d baru=%d timpa=%d total_person=%d dept=%d ip=%s\n",
+        "[%s] user=%s file=%s baris=%d baru=%d timpa=%d planned=%d dept=%d ip=%s\n",
         date('Y-m-d H:i:s'),
         $userName,
         $fileName !== '' ? $fileName : '(tanpa nama)',
@@ -158,7 +159,8 @@ try {
         'saved_rows' => $savedRows,
         'new_rows' => $savedRows - $replacedRows,
         'replaced_rows' => $replacedRows,
-        'saved_total_person' => $savedTotal,
+        'saved_total_person' => $savedTotal, // alias nama lama
+        'saved_planned' => $savedTotal,
         'departments' => count($affectedDepts),
         'skipped' => $errors,
     ]);

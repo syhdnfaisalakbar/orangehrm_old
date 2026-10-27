@@ -6,14 +6,29 @@
  * tampilan pratinjau dan hasil simpan TIDAK mungkin berbeda aturan.
  *
  * Kolom Excel yang diharapkan (urutan bebas, nama case-insensitive):
- *   branch | department | total person | year
+ *   branch | department | planned | year
+ *
+ * Catatan kompatibilitas: kolom "total person" (nama template lama) tetap diterima
+ * sebagai alias "planned" supaya file yang sudah beredar tidak langsung ditolak.
+ * Di kode, nama kanonik yang dipakai adalah `planned`; `total_person` hanya alias
+ * keluaran untuk bundle lama.
  */
 
 /** Alias header yang diterima (sudah dinormalisasi: huruf kecil, tanpa spasi/simbol). */
 const QUOTA_HEADER_ALIASES = [
     'branch' => ['branch', 'cabang'],
     'department' => ['department', 'dept', 'departemen', 'divisi'],
-    'total_person' => ['totalperson', 'totperson', 'total', 'jumlah', 'totalorang'],
+    'planned' => [
+        'planned',          // template baru
+        'plan',
+        'kuota',
+        'quota',
+        'totalperson',      // template lama
+        'totperson',
+        'total',
+        'jumlah',
+        'totalorang',
+    ],
     'year' => ['year', 'tahun'],
 ];
 
@@ -87,14 +102,15 @@ function quota_validate_row(array $cells, array $map, int $rowNumber, array &$se
     $branch = $get('branch');
     $department = $get('department');
     $yearRaw = $get('year');
-    $totalRaw = $get('total_person');
+    $totalRaw = $get('planned');
 
     $result = [
         'row' => $rowNumber,
         'branch' => $branch,
         'department' => $department,
         'year' => $yearRaw,
-        'total_person' => $totalRaw,
+        'planned' => $totalRaw,
+        'total_person' => $totalRaw, // alias nama lama (dipakai bundle UI sebelumnya)
         'status' => 'ok',
         'message' => '',
     ];
@@ -121,11 +137,11 @@ function quota_validate_row(array $cells, array $map, int $rowNumber, array &$se
 
     $total = quota_parse_int($totalRaw);
     if ($total === null) {
-        $errors[] = 'total person harus angka bulat';
+        $errors[] = 'planned harus angka bulat';
     } elseif ($total < 0) {
-        $errors[] = 'total person tidak boleh negatif';
+        $errors[] = 'planned tidak boleh negatif';
     } elseif ($total > 100000) {
-        $errors[] = 'total person tidak wajar (> 100000)';
+        $errors[] = 'planned tidak wajar (> 100000)';
     }
 
     if (!$errors && $year !== null && $total !== null) {
@@ -144,7 +160,8 @@ function quota_validate_row(array $cells, array $map, int $rowNumber, array &$se
         // dikirim balik ke UI dalam bentuk sudah bersih
         $result['department'] = $department;
         $result['year'] = $year;
-        $result['total_person'] = $total;
+        $result['planned'] = $total;
+        $result['total_person'] = $total; // alias nama lama
     }
 
     return $result;
