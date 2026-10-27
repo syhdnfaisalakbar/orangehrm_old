@@ -12,32 +12,36 @@ try {
     $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    // Planned = SUM tot_person dari ohrm_quota_requests yang approval status = 'Completed'
-    // Deduplicate per case_id dulu (1 case bisa punya >1 approval record),
-    // lalu SUM tot_person per dept/year/branch.
+    // Sumber angka per baris (dept + tahun):
+    //   total_additional      -> hasil sync Acumatica (ohrm_ext_department_quota)
+    //   manual_total          -> SUM upload Excel (ohrm_ext_department_quota_manual, ledger)
+    //   planned               -> SUM TOTPERSON case yang approval terakhirnya 'Completed'
+    //   sisa                  -> total_additional + manual_total - planned
     //
-    // Branch:
-    //   1) dari HRPLAN approved utk (dept,year) tsb (BRANCH attribute).
-    //   2) fallback ke BRANCH departemen (dept_branch) — kalau dept/tahun punya baris
-    //      kuota (mis. dari recompute replacement MPR) tapi belum ada HRPLAN approved
-    //      utk tahun itu (mis. IT 2026) → tetap tampil JKT, bukan '-'.
+    // Kunci baris diambil dari UNION kedua tabel, supaya department yang HANYA ada
+    // dari upload Excel (belum punya baris kuota Acumatica) tetap tampil.
     //
-    // JOIN ke ohrm_ext_department_quota biar departemen yang belum ada request
-    // tetap tampil (planned = 0).
+    // Branch (berurutan): approved Acumatica -> branch departemen -> branch upload terakhir -> '-'
     $stmt = $pdo->query("
         SELECT
             q.id,
-            q.dept_name,
-            q.year,
-            TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(q.branch), ''), '-')) AS branch,
-            q.total_additional,
-            COALESCE(q.manual_total, 0) AS manual_total,
-            q.replacement,
-            q.reduction,
-            q.unplanned,
+            k.dept_name,
+            k.year,
+            TRIM(COALESCE(approved.branch, dept_branch.branch, NULLIF(TRIM(man.latest_branch), ''), '-')) AS branch,
+            COALESCE(q.total_additional, 0) AS total_additional,
+            COALESCE(man.manual_total, 0) AS manual_total,
+            COALESCE(q.replacement, 0) AS replacement,
+            COALESCE(q.reduction, 0) AS reduction,
+            COALESCE(q.unplanned, 0) AS unplanned,
             COALESCE(approved.planned_count, 0) AS planned,
-            (COALESCE(q.total_additional, 0) + COALESCE(q.manual_total, 0) - COALESCE(approved.planned_count, 0)) AS sisa
-        FROM ohrm_ext_department_quota q
+            (COALESCE(q.total_additional, 0) + COALESCE(man.manual_total, 0) - COALESCE(approved.planned_count, 0)) AS sisa
+        FROM (
+            SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota
+            UNION
+            SELECT TRIM(dept_name) AS dept_name, year FROM ohrm_ext_department_quota_manual
+        ) k
+        LEFT JOIN ohrm_ext_department_quota q
+               ON TRIM(q.dept_name) = k.dept_name AND q.year = k.year
         LEFT JOIN (
             SELECT
                 TRIM(attr_dept.attribute_value) AS dept_name,
@@ -63,7 +67,7 @@ try {
             LEFT JOIN ohrm_case_attributes attr_branch ON attr_branch.ref_note_id = qr.note_id AND attr_branch.attribute_name = 'BRANCH'
             WHERE latest_appr.approval_status = 'Completed'
             GROUP BY TRIM(attr_dept.attribute_value), CAST(attr_year.attribute_value AS UNSIGNED), TRIM(COALESCE(attr_branch.attribute_value, '-'))
-        ) approved ON approved.dept_name = TRIM(q.dept_name) AND approved.yr = q.year
+        ) approved ON approved.dept_name = k.dept_name AND approved.yr = k.year
         LEFT JOIN (
             -- Branch per departemen (dari HRPLAN BRANCH attribute mana pun) — fallback
             -- utk dept/tahun yang belum punya HRPLAN approved utk thn itu.
@@ -75,16 +79,30 @@ try {
             LEFT JOIN ohrm_case_attributes attr_branch ON attr_branch.ref_note_id = qr.note_id AND attr_branch.attribute_name = 'BRANCH'
             WHERE attr_branch.attribute_value IS NOT NULL AND attr_branch.attribute_value != ''
             GROUP BY TRIM(attr_dept.attribute_value)
-        ) dept_branch ON dept_branch.dept_name = TRIM(q.dept_name)
-        ORDER BY q.year DESC, q.dept_name ASC, branch ASC
+        ) dept_branch ON dept_branch.dept_name = k.dept_name
+        LEFT JOIN (
+            -- Ledger upload: total per dept+tahun + branch dari upload terakhir
+            SELECT
+                TRIM(dept_name) AS dept_name,
+                year,
+                SUM(total_person) AS manual_total,
+                SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(branch, '') ORDER BY id DESC SEPARATOR '||'), '||', 1) AS latest_branch
+            FROM ohrm_ext_department_quota_manual
+            GROUP BY TRIM(dept_name), year
+        ) man ON man.dept_name = k.dept_name AND man.year = k.year
+        ORDER BY k.year DESC, k.dept_name ASC, branch ASC
     ");
 
     $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    // Cast planned to integer (COALESCE returns string from PDO)
+    // Cast ke integer: PDO mengembalikan string untuk hasil COALESCE/SUM
     foreach ($data as &$row) {
-        $row['planned'] = (int) $row['planned'];
+        $row['total_additional'] = (int) $row['total_additional'];
         $row['manual_total'] = (int) $row['manual_total'];
+        $row['planned'] = (int) $row['planned'];
         $row['sisa'] = (int) $row['sisa'];
+        $row['replacement'] = (int) $row['replacement'];
+        $row['reduction'] = (int) $row['reduction'];
+        $row['unplanned'] = (int) $row['unplanned'];
         $row['branch']  = trim((string) $row['branch']);
     }
     unset($row);

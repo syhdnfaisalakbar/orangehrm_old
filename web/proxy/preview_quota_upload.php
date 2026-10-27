@@ -76,7 +76,8 @@ if (empty($results)) {
     $fail('Tidak ada baris data di bawah header.', 422);
 }
 
-// Info angka yang sekarang tersimpan, supaya UI bisa menampilkan "sebelum -> sesudah".
+// Info angka manual yang sekarang tersimpan, supaya UI bisa menampilkan
+// "sebelum -> sesudah". Sumbernya ledger upload (SUM per dept+tahun).
 try {
     $pdo = new PDO(
         'mysql:host=' . PROXY_DB_HOST . ';dbname=' . PROXY_DB_NAME . ';charset=utf8',
@@ -85,8 +86,13 @@ try {
     );
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    $stmt = $pdo->prepare(
-        'SELECT total_additional, COALESCE(manual_total, 0) AS manual_total, branch
+    $stmtManual = $pdo->prepare(
+        'SELECT COALESCE(SUM(total_person), 0) AS manual_total
+           FROM ohrm_ext_department_quota_manual
+          WHERE TRIM(dept_name) = :dept AND year = :year'
+    );
+    $stmtBase = $pdo->prepare(
+        'SELECT total_additional
            FROM ohrm_ext_department_quota
           WHERE TRIM(dept_name) = :dept AND year = :year
           LIMIT 1'
@@ -100,12 +106,13 @@ try {
         if ($row['status'] !== 'ok') {
             continue;
         }
-        $stmt->execute([':dept' => $row['department'], ':year' => $row['year']]);
-        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($existing) {
-            $row['current_manual'] = (int) $existing['manual_total'];
-            $row['current_total_additional'] = (int) $existing['total_additional'];
-            $row['current_branch'] = $existing['branch'];
+        $stmtManual->execute([':dept' => $row['department'], ':year' => $row['year']]);
+        $row['current_manual'] = (int) $stmtManual->fetchColumn();
+
+        $stmtBase->execute([':dept' => $row['department'], ':year' => $row['year']]);
+        $base = $stmtBase->fetch(PDO::FETCH_ASSOC);
+        if ($base) {
+            $row['current_total_additional'] = (int) $base['total_additional'];
         }
     }
     unset($row);

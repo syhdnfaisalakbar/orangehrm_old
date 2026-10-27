@@ -9,14 +9,15 @@
  *     "rows": [ {"department":"FNA","year":2026,"total_person":5,"branch":"JKT"}, ... ]
  *   }
  *
- * Sifat penulisan: AKUMULATIF (sesuai keputusan Pak).
- *   manual_total = manual_total + total_person
- *   Upload ulang untuk department+tahun yang sama akan MENAMBAH, bukan mengganti.
- *   Karena itu UI wajib menampilkan pratinjau "sebelum -> sesudah" sebelum tombol simpan.
+ * Sifat penulisan: AKUMULATIF (sesuai keputusan Pak) — tapi BUKAN dengan menimpa.
+ *   Setiap baris disimpan sebagai satu record di ohrm_ext_department_quota_manual
+ *   (ledger). Total manual per department+tahun = SUM(total_person), jadi upload
+ *   ulang otomatis MENAMBAH, sementara riwayat (siapa, kapan, file apa) tetap utuh.
+ *   Karena itu UI wajib menampilkan pratinjau "sebelum -> sesudah" sebelum menyimpan.
  *
- * Yang TIDAK disentuh: total_additional (milik sync Acumatica), replacement,
- * reduction, unplanned. save_quota.php tetap boleh menimpa kolom-kolom itu tanpa
- * menghapus angka upload.
+ * Yang TIDAK disentuh: ohrm_ext_department_quota (milik sync Acumatica) sama sekali —
+ *   save_quota.php tetap boleh menimpa total_additional/replacement/reduction/unplanned
+ *   tanpa menghapus angka upload.
  */
 
 require_once __DIR__ . '/_config.php';
@@ -89,14 +90,9 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     $stmt = $pdo->prepare(
-        'INSERT INTO ohrm_ext_department_quota
-             (dept_name, year, total_additional, replacement, reduction, unplanned,
-              manual_total, branch, manual_updated_at)
-         VALUES (:dept, :year, 0, 0, 0, 0, :total, :branch, NOW())
-         ON DUPLICATE KEY UPDATE
-             manual_total      = manual_total + VALUES(manual_total),
-             branch            = IF(branch IS NULL OR branch = "", VALUES(branch), branch),
-             manual_updated_at = NOW()'
+        'INSERT INTO ohrm_ext_department_quota_manual
+             (dept_name, year, branch, total_person, source_file, uploaded_by, uploaded_at)
+         VALUES (:dept, :year, :branch, :total, :file, :user, NOW())'
     );
 
     $pdo->beginTransaction();
@@ -108,8 +104,10 @@ try {
         $stmt->execute([
             ':dept' => $row['department'],
             ':year' => $row['year'],
-            ':total' => $row['total_person'],
             ':branch' => $row['branch'] !== '' ? $row['branch'] : null,
+            ':total' => $row['total_person'],
+            ':file' => $fileName !== '' ? $fileName : null,
+            ':user' => $userName,
         ]);
         $savedRows++;
         $savedTotal += (int) $row['total_person'];
