@@ -76,6 +76,9 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
     public const FILTER_METHOD_OF_APPLICATION = 'methodOfApplication';
     public const FILTER_CANDIDATE_NAME = 'candidateName';
     public const FILTER_MODEL = 'model';
+    // Filter tambahan fork ASG: status Task Acumatica (tabel lokal
+    // ohrm_candidate_acumatica_task). Nilai: Open / Processing / Canceled.
+    public const FILTER_ACUMATICA_TASK_STATUS = 'acumaticaTaskStatus';
 
     public const PARAMETER_FIRST_NAME = 'firstName';
     public const PARAMETER_MIDDLE_NAME = 'middleName';
@@ -120,6 +123,27 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
         } else {
             $accessibleCandidateIds = $this->getUserRoleManager()->getAccessibleEntityIds(Candidate::class);
             $candidateSearchFilterParamHolder->setCandidateIds($accessibleCandidateIds);
+        }
+
+        // Filter "Acumatica Task Status": id kandidat diambil dari tabel lokal lalu
+        // dipersempit lewat candidateIds (tabel ini bukan entity, jadi tidak bisa
+        // di-join langsung di DQL).
+        $acumaticaTaskStatus = $this->getRequestParams()->getStringOrNull(
+            RequestParams::PARAM_TYPE_QUERY,
+            self::FILTER_ACUMATICA_TASK_STATUS
+        );
+        if (!is_null($acumaticaTaskStatus) && $acumaticaTaskStatus !== '') {
+            $matchedIds = $this->getCandidateIdsByAcumaticaTaskStatus($acumaticaTaskStatus);
+            if (is_array($matchedIds)) {
+                $currentIds = $candidateSearchFilterParamHolder->getCandidateIds();
+                $ids = is_array($currentIds)
+                    ? array_values(array_intersect($currentIds, $matchedIds))
+                    : $matchedIds;
+                if (empty($ids)) {
+                    $ids = [0]; // tidak ada yang cocok -> daftar kosong
+                }
+                $candidateSearchFilterParamHolder->setCandidateIds($ids);
+            }
         }
 
         $this->setSortingAndPaginationParams($candidateSearchFilterParamHolder);
@@ -184,6 +208,24 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
             $candidates,
             new ParameterBag([CommonParams::PARAMETER_TOTAL => $count])
         );
+    }
+
+    /**
+     * Id kandidat yang status Task Acumatica-nya sesuai filter.
+     * Null kalau tabel belum ada / query gagal -> filter diabaikan, daftar tetap tampil.
+     */
+    private function getCandidateIdsByAcumaticaTaskStatus(string $status): ?array
+    {
+        try {
+            $conn = $this->getEntityManager()->getConnection();
+            $rows = $conn->fetchAllAssociative(
+                'SELECT candidate_id FROM ohrm_candidate_acumatica_task WHERE task_status = :status',
+                ['status' => $status]
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return array_map('intval', array_column($rows, 'candidate_id'));
     }
 
     /**
@@ -295,6 +337,14 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
                 new ParamRule(
                     self::FILTER_STATUS,
                     new Rule(Rules::IN, [array_keys(CandidateService::STATUS_MAP)])
+                )
+            ),
+            // Validasi query param filter tambahan fork ASG (tanpa ini API membalas 422
+            // "Invalid Parameter" karena param tidak terdaftar di whitelist).
+            $this->getValidationDecorator()->notRequiredParamRule(
+                new ParamRule(
+                    self::FILTER_ACUMATICA_TASK_STATUS,
+                    new Rule(Rules::IN, [['Open', 'Processing', 'Completed', 'Canceled']])
                 )
             ),
             $this->getValidationDecorator()->notRequiredParamRule(

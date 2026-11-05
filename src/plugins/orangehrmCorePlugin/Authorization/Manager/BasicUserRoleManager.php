@@ -40,6 +40,7 @@ use OrangeHRM\Entity\User;
 use OrangeHRM\Entity\UserRole;
 use OrangeHRM\Entity\WorkflowStateMachine;
 use OrangeHRM\Performance\Traits\Service\PerformanceTrackerServiceTrait;
+use OrangeHRM\Core\Traits\ORM\EntityManagerTrait;
 use OrangeHRM\Pim\Traits\Service\EmployeeServiceTrait;
 use OrangeHRM\Recruitment\Traits\Service\CandidateServiceTrait;
 use OrangeHRM\Recruitment\Traits\Service\VacancyServiceTrait;
@@ -55,6 +56,7 @@ class BasicUserRoleManager extends AbstractUserRoleManager
     use PerformanceTrackerServiceTrait;
     use VacancyServiceTrait;
     use CandidateServiceTrait;
+    use EntityManagerTrait;
 
     public const PERMISSION_TYPE_DATA_GROUP = 'data_group';
     public const PERMISSION_TYPE_ACTION = 'action';
@@ -76,6 +78,14 @@ class BasicUserRoleManager extends AbstractUserRoleManager
      * @var AbstractUserRole[]
      */
     protected array $userRoleClasses = [];
+
+    /**
+     * Alias nama role -> nama role predefined.
+     * Role predefined boleh diganti display/nama-nya di DB, tapi kelas hak
+     * aksesnya tetap ditentukan oleh id. Contoh: role id 3 (Supervisor) yang
+     * di-rename menjadi "MPP" tetap memakai kelas SupervisorUserRole.
+     */
+    protected array $roleNameAliases = [];
 
     public function __construct()
     {
@@ -116,6 +126,30 @@ class BasicUserRoleManager extends AbstractUserRoleManager
             );
             $this->userRoleClasses[$roleName] = new $className($roleName, $this);
         }
+
+        try {
+            $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
+                'SELECT id, name FROM ohrm_user_role'
+            );
+            $predefined = [
+                1 => 'Admin',
+                2 => 'ESS',
+                3 => 'Supervisor',
+                4 => 'ProjectAdmin',
+                5 => 'Interviewer',
+                6 => 'HiringManager',
+                7 => 'Reviewer',
+            ];
+            foreach ($rows as $row) {
+                $id = (int) $row['id'];
+                $name = (string) $row['name'];
+                if (isset($predefined[$id]) && $name !== $predefined[$id]) {
+                    $this->roleNameAliases[$name] = $predefined[$id];
+                }
+            }
+        } catch (\Throwable $e) {
+            // tabel belum ada (mis. saat instalasi) - abaikan
+        }
     }
 
     /**
@@ -124,7 +158,17 @@ class BasicUserRoleManager extends AbstractUserRoleManager
      */
     protected function getUserRoleClass(string $roleName): ?AbstractUserRole
     {
-        return $this->userRoleClasses[$roleName] ?? null;
+        if (isset($this->userRoleClasses[$roleName])) {
+            return $this->userRoleClasses[$roleName];
+        }
+        $alias = $this->roleNameAliases[$roleName] ?? null;
+        if ($alias !== null && isset($this->userRoleClasses[$alias])) {
+            $class = $this->userRoleClasses[$alias];
+            // daftarkan supaya pencarian berikutnya tidak lewat alias lagi
+            $this->userRoleClasses[$roleName] = $class;
+            return $class;
+        }
+        return null;
     }
 
     /**
@@ -558,6 +602,21 @@ class BasicUserRoleManager extends AbstractUserRoleManager
     }
 
     /**
+     * Cek apakah role utama user dikecualikan dari akses ESS (self service).
+     */
+    private function isEssExcludedForRole(?\OrangeHRM\Entity\UserRole $role): bool
+    {
+        if ($role === null) {
+            return false;
+        }
+        $value = $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT exclude_ess FROM ohrm_user_role WHERE id = ?',
+            [$role->getId()]
+        );
+        return (bool) $value;
+    }
+
+    /**
      * @inheritDoc
      */
     protected function computeUserRoles(User $user): array
@@ -567,7 +626,12 @@ class BasicUserRoleManager extends AbstractUserRoleManager
         // Check for supervisor:
         $empNumber = $user->getEmpNumber();
         if (!empty($empNumber)) {
-            if ($user->getUserRole()->getName() != 'ESS') {
+            // Role utama bisa mengecualikan akses ESS (self service).
+            // Contoh: Supervisor hanya melihat menu yang diberikan lewat matriks
+            // hak akses, tanpa menu Leave/Time/My Info/Dashboard dsb.
+            // Flag dibaca langsung dari DB supaya tidak bergantung pada metadata
+            // Doctrine yang bisa ter-cache.
+            if ($user->getUserRole()->getName() != 'ESS' && !$this->isEssExcludedForRole($user->getUserRole())) {
                 $roles[] = $this->getUserService()->getUserRole('ESS');
             }
 

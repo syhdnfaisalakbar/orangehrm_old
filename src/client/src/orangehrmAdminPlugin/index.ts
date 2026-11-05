@@ -45,6 +45,7 @@ import QualificationMembership from './pages/qualificationMembership/Qualificati
 import EditQualificationMembership from './pages/qualificationMembership/EditQualificationMembership.vue';
 import SaveQualificationMembership from './pages/qualificationMembership/SaveQualificationMembership.vue';
 import ViewOrganizationGeneralInformation from './pages/organizationGeneralInformation/ViewOrganizationGeneralInformation.vue';
+import UserRole from './pages/userRole/UserRole.vue';
 import Nationality from './pages/nationality/Nationality.vue';
 import EditNationality from './pages/nationality/EditNationality.vue';
 import SaveNationality from './pages/nationality/SaveNationality.vue';
@@ -106,6 +107,7 @@ export default {
   'qualification-membership-edit': EditQualificationMembership,
   'qualification-membership-save': SaveQualificationMembership,
   'organization-general-information-view': ViewOrganizationGeneralInformation,
+  'user-role-list': UserRole,
   'nationality-list': Nationality,
   'nationality-edit': EditNationality,
   'nationality-save': SaveNationality,

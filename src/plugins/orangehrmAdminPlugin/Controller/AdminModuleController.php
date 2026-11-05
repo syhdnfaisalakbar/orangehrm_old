@@ -32,6 +32,14 @@ class AdminModuleController extends AbstractModuleController
     public function handle(): RedirectResponse
     {
         $defaultPath = $this->getHomePageService()->getAdminModuleDefaultPath();
+        // Role tanpa baris ohrm_module_default_page membuat nilai ini null ->
+        // redirect(NULL) memicu TypeError. Pakai halaman default user.
+        if (empty($defaultPath)) {
+            $defaultPath = $this->getHomePageService()->getHomePagePath();
+        }
+        if (empty($defaultPath)) {
+            $defaultPath = 'dashboard/index';
+        }
         return $this->redirect($defaultPath);
     }
 }

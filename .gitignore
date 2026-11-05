@@ -83,6 +83,10 @@ phpunit.xml
 web/proxy/acumatica_push_log.txt
 web/proxy/*_log.txt
 
+# Cache runtime endpoint proxy: berisi cookie sesi Acumatica + lock file.
+# JANGAN di-commit; dibuat ulang otomatis saat endpoint dipanggil.
+web/proxy/_cache/
+
 # File sementara dev / agent
 tmp_*.php
 router_dev.php

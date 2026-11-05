@@ -175,6 +175,34 @@ apiv2_admin_paygrades_currencies:
   defaults:
     _api: OrangeHRM\Admin\Api\PayGradeCurrencyAPI
 
+apiv2_admin_user_roles:
+  path: /api/v2/admin/user-roles
+  controller: OrangeHRM\Core\Controller\Rest\V2\GenericRestController::handle
+  methods: [ GET, POST, DELETE ]
+  defaults:
+    _api: OrangeHRM\Admin\Api\UserRoleAPI
+
+apiv2_admin_user_role:
+  path: /api/v2/admin/user-roles/{id}
+  controller: OrangeHRM\Core\Controller\Rest\V2\GenericRestController::handle
+  methods: [ GET, PUT ]
+  defaults:
+    _api: OrangeHRM\Admin\Api\UserRoleAPI
+
+apiv2_admin_user_role_screens:
+  path: /api/v2/admin/user-role-screens
+  controller: OrangeHRM\Core\Controller\Rest\V2\GenericRestController::handle
+  methods: [ GET, PUT ]
+  defaults:
+    _api: OrangeHRM\Admin\Api\UserRolePermissionAPI
+
+apiv2_admin_user_role_copy_screens:
+  path: /api/v2/admin/user-role-screens/copy
+  controller: OrangeHRM\Core\Controller\Rest\V2\GenericRestController::handle
+  methods: [ POST ]
+  defaults:
+    _api: OrangeHRM\Admin\Api\UserRolePermissionAPI
+
 apiv2_admin_nationality:
   path: /api/v2/admin/nationalities/{id}
   controller: OrangeHRM\Core\Controller\Rest\V2\GenericRestController::handle
@@ -525,6 +553,11 @@ edit_qualification_memberships:
 view_organization_general_info:
   path: /admin/viewOrganizationGeneralInformation
   controller: OrangeHRM\Admin\Controller\ViewOrganizationGeneralInformationController::handle
+  methods: [ GET ]
+
+view_user_role:
+  path: /admin/userRole
+  controller: OrangeHRM\Admin\Controller\UserRoleController::handle
   methods: [ GET ]
 
 view_nationality:

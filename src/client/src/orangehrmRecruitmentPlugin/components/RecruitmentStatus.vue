@@ -50,10 +50,38 @@
       </oxd-grid>
       <oxd-divider />
       <div class="orangehrm-recruitment">
-        <div v-if="recruitmentStatus" class="orangehrm-recruitment-status">
-          <oxd-text type="subtitle-2">
-            {{ $t('general.status') }}: {{ recruitmentStatus }}
-          </oxd-text>
+        <div class="orangehrm-recruitment-statuses">
+          <div v-if="recruitmentStatus" class="orangehrm-recruitment-status">
+            <oxd-text type="subtitle-2">
+              {{ $t('general.status') }}: {{ recruitmentStatus }}
+            </oxd-text>
+          </div>
+          <!-- Status Task di tab Activities Acumatica (2026-11-02).
+               Sumber: tabel ohrm_candidate_acumatica_task (diisi saat Sync
+               Application to Acumatica atau lewat tombol Refresh). -->
+          <div class="orangehrm-acumatica-task">
+            <oxd-text type="subtitle-2">
+              Acumatica Task Status:
+              <span v-if="acumaticaTaskLoading">memuat...</span>
+              <span v-else :title="acumaticaTaskError || ''">{{
+                acumaticaTaskStatus || '-'
+              }}</span>
+            </oxd-text>
+            <a
+              class="orangehrm-acumatica-task-refresh"
+              href="#"
+              title="Ambil ulang status Task dari Acumatica"
+              @click.prevent="refreshAcumaticaTask"
+            >
+              {{ acumaticaTaskRefreshing ? 'mengambil...' : 'Refresh' }}
+            </a>
+            <span
+              v-if="acumaticaTaskSyncedAt"
+              class="orangehrm-acumatica-task-time"
+            >
+              ({{ acumaticaTaskSyncedAtShort }})
+            </span>
+          </div>
         </div>
         <div class="orangehrm-recruitment-actions">
           <oxd-button
@@ -145,6 +173,12 @@ export default {
   data() {
     return {
       isLoading: false,
+      // Status Task Acumatica untuk kandidat ini (Open/Processing/Completed/Canceled)
+      acumaticaTaskStatus: null,
+      acumaticaTaskSyncedAt: null,
+      acumaticaTaskLoading: false,
+      acumaticaTaskRefreshing: false,
+      acumaticaTaskError: null,
       statuses: [
         {id: 1, label: this.$t('recruitment.application_initiated')},
         {id: 2, label: this.$t('recruitment.shortlisted')},
@@ -160,6 +194,13 @@ export default {
     };
   },
   computed: {
+    // Jam data status Task disimpan (HH:MM) — supaya kelihatan apakah nilainya
+    // baru diambil atau masih lama.
+    acumaticaTaskSyncedAtShort() {
+      const raw = String(this.acumaticaTaskSyncedAt || '');
+      const m = raw.match(/(\d{2}):(\d{2})/);
+      return m ? `${m[1]}:${m[2]}` : '';
+    },
     recruitmentStatus() {
       return (
         this.statuses.find((item) => item.id === this.candidate.status?.id)
@@ -190,12 +231,62 @@ export default {
   watch: {
     candidate() {
       this.getAllowedActions();
+      this.fetchAcumaticaTaskStatus();
     },
   },
   beforeMount() {
     this.getAllowedActions();
+    this.fetchAcumaticaTaskStatus();
   },
   methods: {
+    // Ambil status Task Acumatica dari DB lokal (cepat, tanpa login Acumatica).
+    // refresh=true memaksa ambil ulang dari Acumatica (dipakai tombol Refresh).
+    async fetchAcumaticaTaskStatus(refresh = false) {
+      const candidateId = this.candidate?.id;
+      if (!candidateId) return;
+      if (refresh) {
+        this.acumaticaTaskRefreshing = true;
+      } else {
+        this.acumaticaTaskLoading = true;
+      }
+      try {
+        const rawBase = String(window.appGlobal?.baseUrl || '');
+        // Di instance tertentu (mis. staging SSO :8181, docroot = root project)
+        // baseUrl berisi "/web/index.php" -> harus dibuang, kalau tidak URL
+        // jatuh ke router Yii (/web/index.php/proxy/...) dan balas 404.
+        const baseUrl = rawBase
+          .replace(/\/index\.php.*$/i, '')
+          .replace(/\/$/, '');
+        const url =
+          `${baseUrl}/proxy/get_candidate_task_status.php?candidate_id=${candidateId}` +
+          (refresh ? '&refresh=1' : '');
+        const res = await fetch(url, {headers: {Accept: 'application/json'}});
+        const data = await res.json();
+        if (data && data.status === 'ok') {
+          this.acumaticaTaskStatus =
+            data.task_status || this.acumaticaTaskStatus;
+          this.acumaticaTaskSyncedAt = data.synced_at || null;
+          this.acumaticaTaskError = null;
+          // Catatan: TIDAK auto-refresh ke Acumatica saat halaman dibuka.
+          // Login Acumatica dibatasi (SM201010 concurrent API logins) dan sesi
+          // bisa menggantung -> refresh hanya lewat tombol (1 login, lalu logout).
+        } else if (!refresh) {
+          // no_task / error saat baca DB: jangan hapus nilai yang sudah tampil
+          this.acumaticaTaskError = data?.message || null;
+        } else {
+          this.acumaticaTaskError = data?.message || 'Refresh gagal.';
+        }
+      } catch (e) {
+        this.acumaticaTaskError = 'Gagal menghubungi server.';
+      } finally {
+        this.acumaticaTaskLoading = false;
+        this.acumaticaTaskRefreshing = false;
+      }
+    },
+    refreshAcumaticaTask() {
+      if (this.acumaticaTaskRefreshing) return;
+      this.fetchAcumaticaTaskStatus(true);
+    },
     hasWorkflow(actionId) {
       return this.actions.findIndex((actions) => actions.id == actionId) > -1;
     },
@@ -232,6 +323,11 @@ export default {
 .orangehrm-recruitment {
   display: flex;
   justify-content: space-between;
+  &-statuses {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
   &-actions {
     gap: 0.4rem;
     display: flex;
@@ -255,6 +351,27 @@ export default {
   margin-bottom: 1rem;
   @include oxd-respond-to('md') {
     margin-bottom: 0;
+  }
+}
+
+/* Baris "Acumatica Task Status" + tautan Refresh (2026-11-02) */
+.orangehrm-acumatica-task {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  &-refresh {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #1a73e8;
+    text-decoration: underline;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  &-time {
+    font-size: 11px;
+    color: #64748b;
+    white-space: nowrap;
   }
 }
 </style>

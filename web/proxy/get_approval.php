@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_kpi_scope.php';
 /**
  * get_approval.php
  *
@@ -31,9 +32,7 @@ try {
     // 1. Role user
     $isAdmin = false;
     if ($emp > 0) {
-        $st = $pdo->prepare("SELECT user_role_id FROM ohrm_user WHERE emp_number = ? AND deleted = 0 LIMIT 1");
-        $st->execute([$emp]);
-        $isAdmin = ((int)$st->fetchColumn() === 1);
+        $isAdmin = kpiIsFullScope($pdo, $emp);
     }
 
     // 2. Scope divisi + cabang: admin = semua; non-admin = mapping-nya

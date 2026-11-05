@@ -62,11 +62,20 @@ try {
         )
     ");
 
-    // Cek status approval manpower request (ohrm_manpower_approval)
+    // Cek status approval manpower request (ohrm_manpower_approval).
+    // 2026-11-02: yang dicari adalah TASK YANG COMPLETED, bukan sekadar task
+    // terakhir. Kasus nyata: 0000008667 punya task Completed (30-10) lalu task
+    // Open baru (02-11) — dengan query lama vacancy-nya ikut ditahan padahal
+    // approval sudah pernah selesai. Urutan: baris Completed/Approved didahulukan
+    // (is_done DESC), baru yang terbaru. Kalau tidak ada yang Completed sama
+    // sekali, baris teratas = task terbaru → dipakai untuk pesan alert.
     $stmtApproval = $pdo->prepare(
-        "SELECT status FROM ohrm_manpower_approval
+        "SELECT status,
+                CASE WHEN UPPER(TRIM(COALESCE(status, ''))) IN ('COMPLETED', 'APPROVED')
+                     THEN 1 ELSE 0 END AS is_done
+         FROM ohrm_manpower_approval
          WHERE case_id = :case_id
-         ORDER BY updated_at DESC, id DESC LIMIT 1"
+         ORDER BY is_done DESC, id DESC LIMIT 1"
     );
 
     foreach ($data['casesDetail'] as $case) {
@@ -76,12 +85,16 @@ try {
         // Open / tanpa data approval → SKIP + alert (konsisten dengan Manpower Request).
         $caseIdForApproval = $case['caseId'] ?? null;
         $approvalStatus = null;
+        $approvalDone = false;
         if ($caseIdForApproval) {
             $stmtApproval->execute([':case_id' => $caseIdForApproval]);
             $approvalRow = $stmtApproval->fetch(PDO::FETCH_ASSOC);
             $approvalStatus = $approvalRow ? $approvalRow['status'] : null;
+            // is_done=1 berarti case ini punya task Completed/Approved (bukan cuma
+            // task terakhir). Ini yang menentukan vacancy boleh disimpan.
+            $approvalDone = $approvalRow ? ((int)$approvalRow['is_done'] === 1) : false;
         }
-        if ($approvalStatus === null || !in_array(strtoupper($approvalStatus), ['COMPLETED', 'APPROVED'], true)) {
+        if (!$approvalDone) {
             $openApprovals[] = $caseIdForApproval . ' (approval manpower request: ' . ($approvalStatus ?: 'belum ada data approval') . ')';
             continue; // SKIP — vacancy tidak disimpan
         }
@@ -186,7 +199,13 @@ try {
     echo json_encode([
         'status' => 'success',
         'message' => $msg . $openMsg,
-        'open_approval' => $openApprovals
+        // Jumlah sebenarnya, dipakai UI untuk notifikasi (jangan pakai jumlah case
+        // yang ditarik dari Acumatica — dulu itu bikin notif "berhasil" padahal 0 tersimpan)
+        'total' => count($data['casesDetail']),
+        'inserted' => $inserted,
+        'skipped' => $skipped,
+        'blocked' => count($openApprovals),
+        'open_approval' => $openApprovals,
     ]);
 } catch (Exception $e) {
     $pdo->rollBack();

@@ -14,6 +14,8 @@ require_once __DIR__ . '/_config.php';
  *   - ohrm_manpower_request ter-link (kolom langsung ATAU link table):
  *       status   = 'Rejected'
  *       tot_person = 0
+ *   - Acumatica Case REQFPTK ter-link:
+ *       Status = Closed, Reason = Rejected, Description = blok REJECTED
  *
  * Response: { "status": "ok", "message": "...", "vacancy_id": 68, "mpr_id": 12 }
  */
@@ -182,7 +184,10 @@ try {
                 "Status: <b>REJECTED</b>";
 
             require_once __DIR__ . '/close_case_acumatica.php';
-            $pushResult = closeCaseInAcumatica((string)$caseRow['case_id'], $description);
+            // Reason (field "resolution" Case di Acumatica) untuk reject.
+            // Bisa dioverride di config.php: 'acumatica' => ['reject_reason' => 'Rejected']
+            $rejectReason = defined('ACUMATICA_REJECT_REASON') ? ACUMATICA_REJECT_REASON : 'Rejected';
+            $pushResult = closeCaseInAcumatica((string)$caseRow['case_id'], $description, $rejectReason);
         }
     } catch (\Throwable $e) {
         // best-effort — jangan sampai reject gagal karena push error

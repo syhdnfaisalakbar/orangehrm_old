@@ -100,12 +100,29 @@
           row-decorator="oxd-table-decorator-card"
         />
       </div>
-      <div class="orangehrm-bottom-container">
-        <oxd-pagination
-          v-if="showPaginator"
-          v-model:current="currentPage"
-          :length="pages"
-        />
+      <div class="orangehrm-bottom-container orangehrm-system-user-bottom">
+        <oxd-text tag="p" class="orangehrm-system-user-count">
+          Menampilkan {{ rangeStart }}–{{ rangeEnd }} dari {{ total }} user
+        </oxd-text>
+        <div class="orangehrm-system-user-bottom-right">
+          <div class="orangehrm-system-user-page-size">
+            <oxd-text tag="p">Baris per halaman</oxd-text>
+            <span
+              v-for="size in pageSizeOptions"
+              :key="size"
+              class="orangehrm-system-user-page-size-chip"
+              :class="{'--active': pageSize === size}"
+              @click="pageSize = size"
+            >
+              {{ size }}
+            </span>
+          </div>
+          <oxd-pagination
+            v-if="showPaginator"
+            v-model:current="currentPage"
+            :length="pages"
+          />
+        </div>
       </div>
     </div>
     <delete-confirmation ref="deleteDialog"></delete-confirmation>
@@ -161,10 +178,9 @@ export default {
         return {
           id: item.id,
           userName: item.userName,
-          role:
-            item.userRole?.displayName === 'Admin'
-              ? $t('general.admin')
-              : $t('general.ess'),
+          // Tampilkan role apa adanya. Sebelumnya semua role non-Admin
+          // dipaksa tampil "ESS" (role seperti BOD/MPP jadi salah label).
+          role: item.userRole?.displayName || item.userRole?.name || '',
           empName: $tEmpName(item.employee, {includeMiddle: false}),
           status: item.status ? $t('general.enabled') : $t('general.disabled'),
           isSelectable: selectable === -1,
@@ -203,6 +219,7 @@ export default {
     } = usePaginate(http, {
       query: serializedFilters,
       normalizer: userdataNormalizer,
+      pageSize: 5,
     });
 
     onSort(execQuery);
@@ -217,6 +234,7 @@ export default {
       pageSize,
       execQuery,
       items: response,
+      pageSizeOptions: [5, 10, 25, 50],
       filters,
       sortDefinition,
     };
@@ -273,6 +291,7 @@ export default {
           },
         },
       ],
+      // Diisi dari /api/v2/admin/user-roles (lihat loadUserRoles)
       userRoles: [
         {id: 1, label: this.$t('general.admin')},
         {id: 2, label: this.$t('general.ess')},
@@ -288,8 +307,19 @@ export default {
     };
   },
 
+  computed: {
+    rangeStart() {
+      if (!this.total) return 0;
+      return (this.currentPage - 1) * this.pageSize + 1;
+    },
+    rangeEnd() {
+      return Math.min(this.currentPage * this.pageSize, this.total);
+    },
+  },
+
   // 👇==== TAMBAHKAN BLOK MOUNTED INI ====👇
   mounted() {
+    this.loadUserRoles();
     setTimeout(() => {
       // Pastikan trik ini HANYA berjalan jika URL-nya murni Admin (tidak mengandung kata 'page=')
       if (!window.location.href.includes('page=')) {
@@ -310,6 +340,30 @@ export default {
   // 👆===================================👆
 
   methods: {
+    /**
+     * Filter "User Role" harus memuat semua role (termasuk role baru seperti BOD),
+     * jadi opsinya diambil dari API, bukan daftar tetap Admin + ESS.
+     */
+    loadUserRoles() {
+      const http = new APIService(
+        window.appGlobal.baseUrl,
+        '/api/v2/admin/user-roles',
+      );
+      http
+        .getAll({limit: 100, offset: 0})
+        .then((response) => {
+          const roles = response.data?.data ?? [];
+          if (roles.length) {
+            this.userRoles = roles.map((role) => ({
+              id: role.id,
+              label: role.displayName || role.name,
+            }));
+          }
+        })
+        .catch(() => {
+          // biarkan daftar default kalau API gagal
+        });
+    },
     onClickAdd() {
       navigate('/admin/saveSystemUser');
     },
@@ -369,3 +423,7 @@ export default {
   },
 };
 </script>
+
+<style lang="scss" scoped>
+@import './system-user.scss';
+</style>

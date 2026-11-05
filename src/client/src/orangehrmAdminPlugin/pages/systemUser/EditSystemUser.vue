@@ -178,10 +178,10 @@ export default {
         status: [required],
         email: [shouldNotExceedCharLength(50), validEmailFormat],
       },
-      userRoles: [
-        {id: 1, label: this.$t('general.admin')},
-        {id: 2, label: this.$t('general.ess')},
-      ],
+      // Diisi dari Admin -> User Role (role yang is_assignable = 1)
+      userRoles: [],
+      pendingRoleId: null,
+      pendingRoleLabel: '',
       userStatuses: [
         {id: 1, label: this.$t('general.enabled')},
         {id: 2, label: this.$t('general.disabled')},
@@ -190,33 +190,92 @@ export default {
   },
   beforeMount() {
     this.isLoading = true;
-    this.http
-      .get(this.systemUserId)
-      .then((response) => {
-        const {data} = response.data;
-        this.user.id = data.id;
-        this.user.username = data.userName;
-        this.user.role = this.userRoles.find(
-          (item) => item.id === data.userRole.id,
-        );
-        this.user.employee = {
-          id: data.employee.empNumber,
-          label: `${data.employee.firstName} ${data.employee.middleName} ${data.employee.lastName}`,
-          isPastEmployee: data.employee.terminationId,
-        };
-        this.user.email = data.employee.workEmail || '';
-        if (data.status) {
-          this.user.status = {id: 1, label: this.$t('general.enabled')};
-        } else {
-          this.user.status = {id: 2, label: this.$t('general.disabled')};
-        }
-      })
-      .finally(() => {
-        this.isLoading = false;
-      });
+    // Muat opsi role dulu, baru data user, supaya role user langsung terpilih
+    // (sebelumnya balapan: data user datang sebelum daftar role, role jadi null
+    // dan field User Role tampil merah "Required").
+    this.loadUserRoles()
+      .catch(() => this.userRoles)
+      .then(() => this.fetchUser());
   },
 
   methods: {
+    fetchUser() {
+      return this.http
+        .get(this.systemUserId)
+        .then((response) => {
+          const {data} = response.data;
+          this.user.id = data.id;
+          this.user.username = data.userName;
+          // Daftar role dimuat async dari API (mounted), bisa belum siap di sini.
+          // Simpan id-nya dulu, lalu pasang setelah opsi role tersedia.
+          this.pendingRoleId = data.userRole.id;
+          this.pendingRoleLabel =
+            data.userRole.displayName || data.userRole.name || '';
+          this.user.role =
+            this.userRoles.find((item) => item.id === data.userRole.id) || null;
+          this.applyPendingRole();
+          this.user.employee = {
+            id: data.employee.empNumber,
+            label: `${data.employee.firstName} ${data.employee.middleName} ${data.employee.lastName}`,
+            isPastEmployee: data.employee.terminationId,
+          };
+          this.user.email = data.employee.workEmail || '';
+          if (data.status) {
+            this.user.status = {id: 1, label: this.$t('general.enabled')};
+          } else {
+            this.user.status = {id: 2, label: this.$t('general.disabled')};
+          }
+        })
+        .finally(() => {
+          this.isLoading = false;
+        });
+    },
+
+    /**
+     * Pasang role user setelah daftar opsi tersedia. Kalau role user tidak ada
+     * di daftar assignable (mis. role lama / non-assignable), tetap tampilkan
+     * sebagai opsi supaya field tidak dianggap kosong (required).
+     */
+    applyPendingRole() {
+      if (this.pendingRoleId === null || this.pendingRoleId === undefined) {
+        return;
+      }
+      const found = this.userRoles.find(
+        (item) => item.id === this.pendingRoleId,
+      );
+      if (found) {
+        this.user.role = found;
+        return;
+      }
+      const fallback = {
+        id: this.pendingRoleId,
+        label: this.pendingRoleLabel || `Role #${this.pendingRoleId}`,
+      };
+      this.userRoles = [...this.userRoles, fallback];
+      this.user.role = fallback;
+    },
+
+    loadUserRoles() {
+      const http = new APIService(
+        window.appGlobal.baseUrl,
+        '/api/v2/admin/user-roles',
+      );
+      return http
+        .getAll()
+        .then((response) => {
+          const roles = response?.data?.data || [];
+          this.userRoles = roles
+            .filter((role) => role.isAssignable)
+            .map((role) => ({id: role.id, label: role.displayName}));
+        })
+        .catch(() => {
+          this.userRoles = [
+            {id: 1, label: this.$t('general.admin')},
+            {id: 2, label: this.$t('general.ess')},
+          ];
+          return this.userRoles;
+        });
+    },
     onCancel() {
       navigate('/admin/viewSystemUsers');
     },

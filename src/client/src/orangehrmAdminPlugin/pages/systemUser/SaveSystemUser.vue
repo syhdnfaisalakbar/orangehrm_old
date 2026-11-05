@@ -156,10 +156,9 @@ export default {
         status: [required],
         email: [shouldNotExceedCharLength(50), validEmailFormat],
       },
-      userRoles: [
-        {id: 1, label: this.$t('general.admin')},
-        {id: 2, label: this.$t('general.ess')},
-      ],
+      // Diisi dari Admin -> User Role (role yang is_assignable = 1),
+      // supaya role baru langsung bisa dipilih di form user.
+      userRoles: [],
       userStatuses: [
         {id: 1, label: this.$t('general.enabled')},
         {id: 2, label: this.$t('general.disabled')},
@@ -167,7 +166,32 @@ export default {
     };
   },
 
+  mounted() {
+    this.loadUserRoles();
+  },
+
   methods: {
+    loadUserRoles() {
+      const http = new APIService(
+        window.appGlobal.baseUrl,
+        '/api/v2/admin/user-roles',
+      );
+      http
+        .getAll()
+        .then((response) => {
+          const roles = response?.data?.data || [];
+          this.userRoles = roles
+            .filter((role) => role.isAssignable)
+            .map((role) => ({id: role.id, label: role.displayName}));
+        })
+        .catch(() => {
+          // fallback: role dasar supaya form tetap bisa dipakai
+          this.userRoles = [
+            {id: 1, label: this.$t('general.admin')},
+            {id: 2, label: this.$t('general.ess')},
+          ];
+        });
+    },
     onCancel() {
       navigate('/admin/viewSystemUsers');
     },

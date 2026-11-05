@@ -155,7 +155,8 @@ function acumaticaLogout(string $cookie): void
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Cookie: ' . $cookie],
+            CURLOPT_POSTFIELDS => '',
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Content-Length: 0', 'Cookie: ' . $cookie],
             CURLOPT_TIMEOUT => 10,
             CURLOPT_SSL_VERIFYPEER => false,
         ]);
@@ -174,12 +175,19 @@ function acumaticaLogout(string $cookie): void
  * dulu (Status -> Open), PUT Description, baru Status -> Closed. Case Closed
  * tidak bisa di-PUT Description (401) dan 401 pertama meng-invalidate session.
  *
+ * REASON (2026-10-30): Acumatica menyimpan "resolution" Case di field `Reason`
+ * (bukan `Resolution` — field itu tidak ada di entity Case 25.200.001).
+ * Nilai Reason harus konsisten dengan Status. Untuk Status=Closed yang sah:
+ * Resolved, Rejected, Canceled, Abandoned, Duplicate.
+ * Kalau $reason = null → perilaku lama (Acumatica default: Resolved).
+ *
  * @param string $caseId
  * @param string|null $description Opsional: kalau diisi, Description case
  *        di-PUT dulu (buka case dulu kalau Closed), baru Status -> Closed.
+ * @param string|null $reason Opsional: nilai `Reason` saat close (mis. 'Rejected').
  * @return array{status:string, case_id:string, http_code?:int, message?:string, body?:string}
  */
-function closeCaseInAcumatica(string $caseId, ?string $description = null): array
+function closeCaseInAcumatica(string $caseId, ?string $description = null, ?string $reason = null): array
 {
     $caseId = trim($caseId);
     if ($caseId === '') {
@@ -216,9 +224,17 @@ function closeCaseInAcumatica(string $caseId, ?string $description = null): arra
             logAcumaticaPush($caseId, 'get-error', 'GET status HTTP ' . $get['http'] . ' body=' . substr($get['body'], 0, 200));
         }
 
-        // ---- 3. Kalau ada description dan case Closed → buka dulu ----
-        if ($description !== null && $description !== '' && $currentStatus === 'closed') {
-            $reopen = acumaticaCaseRequest($url, 'PUT', $cookie, ['Status' => ['value' => 'Open']]);
+        // Normalisasi reason (null/kosong = perilaku lama, Acumatica pakai default 'Resolved')
+        $reason = ($reason !== null && trim($reason) !== '') ? trim($reason) : null;
+
+        // ---- 3. Kalau case sudah Closed → buka dulu ----
+        // DUA alasan: (a) Description tidak bisa di-PUT saat Closed (401),
+        // (b) `Reason` TIDAK dipersist kalau status tidak bertransisi —
+        // PUT {Status:Closed, Reason:X} pada case yang sudah Closed dijawab
+        // HTTP 200 tapi nilainya diabaikan (diuji di staging 2026-10-30).
+        // Jadi reopen (Status=Open) dulu, baru close lagi dengan Reason.
+        if ((($description !== null && $description !== '') || $reason !== null) && $currentStatus === 'closed') {
+            $reopen = acumaticaCaseRequest($url, 'PUT', $cookie, ['Status' => ['value' => 'Open'], 'Reason' => ['value' => 'In Process']]);
             logAcumaticaPush($caseId, $reopen['http'] >= 200 && $reopen['http'] < 300 ? 'reopen-ok' : 'reopen-error', 'Reopen HTTP ' . $reopen['http'] . ' body=' . substr($reopen['body'], 0, 300));
         }
 
@@ -228,9 +244,31 @@ function closeCaseInAcumatica(string $caseId, ?string $description = null): arra
             logAcumaticaPush($caseId, $desc['http'] >= 200 && $desc['http'] < 300 ? 'desc-ok' : 'desc-error', 'Description HTTP ' . $desc['http'] . ' body=' . substr($desc['body'], 0, 300));
         }
 
-        // ---- 5. PUT Status -> Closed ----
-        $close = acumaticaCaseRequest($url, 'PUT', $cookie, ['Status' => ['value' => 'Closed']]);
+        // ---- 5. PUT Status -> Closed (+ Reason kalau diminta) ----
+        // Reason dikirim BARENG Status dalam satu PUT karena nilainya harus
+        // konsisten dengan status (Rejected hanya sah untuk Closed/Released).
+        $closePayload = ['Status' => ['value' => 'Closed']];
+        if ($reason !== null) {
+            $closePayload['Reason'] = ['value' => $reason];
+        }
+        $close = acumaticaCaseRequest($url, 'PUT', $cookie, $closePayload);
         $httpCode = $close['http'];
+
+        // ---- 5b. Fallback: kalau PUT gabungan ditolak, close dulu tanpa Reason ----
+        // Biar reject tetap menutup case walau nilai Reason ditolak Acumatica.
+        $reasonPush = null;
+        if ($reason !== null && !($httpCode >= 200 && $httpCode < 300)) {
+            logAcumaticaPush($caseId, 'close+reason-error', 'HTTP ' . $httpCode . ' body=' . substr($close['body'], 0, 300));
+            $closeOnly = acumaticaCaseRequest($url, 'PUT', $cookie, ['Status' => ['value' => 'Closed']]);
+            if ($closeOnly['http'] >= 200 && $closeOnly['http'] < 300) {
+                $reasonOnly = acumaticaCaseRequest($url, 'PUT', $cookie, ['Reason' => ['value' => $reason]]);
+                $reasonOk = $reasonOnly['http'] >= 200 && $reasonOnly['http'] < 300;
+                $reasonPush = $reasonOk ? 'ok' : 'error';
+                logAcumaticaPush($caseId, $reasonOk ? 'reason-ok' : 'reason-error', 'Reason HTTP ' . $reasonOnly['http'] . ' body=' . substr($reasonOnly['body'], 0, 300));
+                $close = $closeOnly;
+                $httpCode = $closeOnly['http'];
+            }
+        }
 
         if ($close['error']) {
             $r = ['status' => 'error', 'case_id' => $caseId, 'message' => 'cURL error: ' . $close['error']];
@@ -240,7 +278,11 @@ function closeCaseInAcumatica(string $caseId, ?string $description = null): arra
 
         if ($httpCode >= 200 && $httpCode < 300) {
             $r = ['status' => 'ok', 'case_id' => $caseId, 'http_code' => $httpCode];
-            logAcumaticaPush($caseId, $r['status'], 'HTTP ' . $httpCode);
+            if ($reason !== null) {
+                $r['reason'] = $reason;
+                $r['reason_push'] = $reasonPush ?? 'ok'; // 'ok' = ikut satu PUT, 'error' = fallback gagal
+            }
+            logAcumaticaPush($caseId, $r['status'], 'HTTP ' . $httpCode . ($reason !== null ? ' reason=' . $reason . ' (' . $r['reason_push'] . ')' : ''));
             return $r;
         }
 
@@ -251,6 +293,10 @@ function closeCaseInAcumatica(string $caseId, ?string $description = null): arra
             'message' => 'Gagal close case ' . $caseId,
             'body' => substr($close['body'], 0, 300),
         ];
+        if ($reason !== null) {
+            $r['reason'] = $reason;
+            $r['reason_push'] = $reasonPush ?? 'error';
+        }
         logAcumaticaPush($caseId, $r['status'], $r['message'] . ' http=' . $httpCode . ' body=' . ($r['body'] ?? ''));
         return $r;
     } catch (\Throwable $e) {
@@ -270,5 +316,6 @@ if (basename($_SERVER['SCRIPT_NAME'] ?? '') === basename(__FILE__)) {
     $input = json_decode(file_get_contents('php://input'), true) ?: $_GET;
     $caseId = $input['case_id'] ?? '';
     $description = $input['description'] ?? null;
-    echo json_encode(closeCaseInAcumatica($caseId, $description));
+    $reason = $input['reason'] ?? null; // mis. "Rejected"
+    echo json_encode(closeCaseInAcumatica($caseId, $description, $reason));
 }

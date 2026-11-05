@@ -142,6 +142,19 @@ abstract class AbstractCandidateActionAPI extends Endpoint implements ResourceEn
             $result = $this->getCandidateService()->getCandidateDao()->saveCandidateHistory($candidateHistory);
 
             $this->commitTransaction();
+
+            // Reject di OrangeHRM -> Task kandidat di Acumatica jadi Canceled.
+            // Best-effort: kalau Acumatica bermasalah, reject tetap sukses.
+            if ($this->getResultingState() === WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_REJECT) {
+                $this->cancelAcumaticaTaskBestEffort((int) $candidateId);
+            }
+
+            // Hire di OrangeHRM -> Task kandidat di Acumatica jadi Closed.
+            // Best-effort: hire tetap sukses walau Acumatica bermasalah.
+            if ($this->getResultingState() === WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_HIRE) {
+                $this->closeAcumaticaTaskBestEffort((int) $candidateId);
+            }
+
             return new EndpointResourceResult(CandidateHistoryDefaultModel::class, $result);
         } catch (RecordNotFoundException|ForbiddenException $e) {
             $this->rollBackTransaction();
@@ -149,6 +162,72 @@ abstract class AbstractCandidateActionAPI extends Endpoint implements ResourceEn
         } catch (Exception $e) {
             $this->rollBackTransaction();
             throw new TransactionException($e);
+        }
+    }
+
+    /**
+     * Set Status Task kandidat di Acumatica menjadi Canceled setelah kandidat
+     * di-Reject di OrangeHRM. Dipanggil SETELAH commit transaksi, jadi semua
+     * kegagalan di sini hanya dicatat ke log dan tidak menggagalkan reject.
+     */
+    private function cancelAcumaticaTaskBestEffort(int $candidateId): void
+    {
+        try {
+            $root = dirname(__DIR__, 4);
+            $helper = $root . '/web/proxy/_acumatica_task_cancel.php';
+            if (!is_file($helper)) {
+                return;
+            }
+            require_once $helper;
+            if (!function_exists('acumaticaCancelCandidateTask')) {
+                return;
+            }
+            $result = acumaticaCancelCandidateTask($candidateId);
+
+            $logDir = $root . '/web/proxy/_cache';
+            if (!is_dir($logDir)) {
+                @mkdir($logDir, 0775, true);
+            }
+            @file_put_contents(
+                $logDir . '/acumatica_reject.log',
+                date('c') . ' candidate=' . $candidateId . ' ' . json_encode($result) . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $e) {
+            // best-effort — jangan gagalkan reject
+        }
+    }
+
+    /**
+     * Set Status Task kandidat di Acumatica menjadi Closed setelah kandidat
+     * di-HIRE di OrangeHRM. Dipanggil SETELAH commit transaksi, jadi kegagalan
+     * di sini hanya dicatat ke log dan tidak menggagalkan hire.
+     */
+    private function closeAcumaticaTaskBestEffort(int $candidateId): void
+    {
+        try {
+            $root = dirname(__DIR__, 4);
+            $helper = $root . '/web/proxy/_acumatica_task_close.php';
+            if (!is_file($helper)) {
+                return;
+            }
+            require_once $helper;
+            if (!function_exists('acumaticaCloseCandidateTask')) {
+                return;
+            }
+            $result = acumaticaCloseCandidateTask($candidateId);
+
+            $logDir = $root . '/web/proxy/_cache';
+            if (!is_dir($logDir)) {
+                @mkdir($logDir, 0775, true);
+            }
+            @file_put_contents(
+                $logDir . '/acumatica_hire.log',
+                date('c') . ' candidate=' . $candidateId . ' ' . json_encode($result) . PHP_EOL,
+                FILE_APPEND
+            );
+        } catch (\Throwable $e) {
+            // best-effort — jangan gagalkan hire
         }
     }
 

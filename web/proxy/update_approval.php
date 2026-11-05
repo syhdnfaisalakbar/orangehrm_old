@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_kpi_scope.php';
 /**
  * update_approval.php
  *
@@ -47,9 +48,7 @@ try {
     // Hanya admin yang boleh approve/reject
     $isAdmin = false;
     if ($emp > 0) {
-        $st = $pdo->prepare("SELECT user_role_id FROM ohrm_user WHERE emp_number = ? AND deleted = 0 LIMIT 1");
-        $st->execute([$emp]);
-        $isAdmin = ((int)$st->fetchColumn() === 1);
+        $isAdmin = kpiIsFullScope($pdo, $emp);
     }
     if (!$isAdmin) {
         $out = ['status'=>'error','message'=>'Anda tidak berhak melakukan approval'];

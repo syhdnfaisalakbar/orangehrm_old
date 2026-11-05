@@ -52,6 +52,10 @@
     $define('ACUMATICA_LOGIN_USER', (string)($ac['login_user'] ?? ''));
     $define('ACUMATICA_LOGIN_PASS', (string)($ac['login_pass'] ?? ''));
     $define('ACUMATICA_COMPANY', (string)($ac['company'] ?? ''));
+    // Reason (field "resolution" Case di Acumatica) yang dipakai saat reject
+    // vacancy menutup Case REQFPTK. Nilai sah untuk Status=Closed:
+    // Resolved, Rejected, Canceled, Abandoned, Duplicate.
+    $define('ACUMATICA_REJECT_REASON', (string)($ac['reject_reason'] ?? 'Rejected'));
 
     $gs = (isset($cfg['google_sso']) && is_array($cfg['google_sso'])) ? $cfg['google_sso'] : [];
     $define('GOOGLE_SSO_CLIENT_ID', (string)($gs['client_id'] ?? ''));

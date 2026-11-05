@@ -719,15 +719,19 @@ export default {
       };
     },
 
-    // Render Approval Task TERAKHIR (badge status saja) — data dari
-    // get_manpower_requests.php kolom lastApproval (task id terbesar).
+    // Render badge status untuk kolom Approval Task.
+    // SUMBER: row.completedApproval (get_manpower_requests.php) — HANYA task
+    // berstatus Completed yang ditampilkan (permintaan 2026-10-30). Task
+    // Open/Rejected tidak muncul di kolom; kalau belum ada yang Completed,
+    // badge tampil '-'. lastApproval tetap dipakai filter Status Approval
+    // dan logika checkbox delete.
     cellRendererApproval(...args) {
       const row = args[3];
-      const la = row.lastApproval || {};
+      const ca = row.completedApproval || {};
       return {
         component: ApprovalTaskBadge,
         props: {
-          status: la.status || '-',
+          status: ca.status || '-',
         },
       };
     },

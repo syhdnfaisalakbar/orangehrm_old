@@ -27,11 +27,26 @@ try {
     // ORDER BY created_at DESC supaya task paling baru (Created On terbaru) muncul duluan
     $stmtApproval = $pdo->prepare("SELECT * FROM ohrm_manpower_approval WHERE case_id = :case_id ORDER BY created_at DESC, id DESC");
 
-    // 3b. AMBIL APPROVAL TASK TERAKHIR per case (kolom tabel FPTK — yang paling terakhir)
+    // 3b. AMBIL APPROVAL TASK TERAKHIR per case (dipakai filter Status Approval
+    // + aturan checkbox delete yang hanya boleh untuk task Open)
     $stmtLastApproval = $pdo->prepare(
         "SELECT summary, owner, priority, status, approval_date
          FROM ohrm_manpower_approval
          WHERE case_id = :case_id
+         ORDER BY id DESC
+         LIMIT 1"
+    );
+
+    // 3c. APPROVAL TASK COMPLETED TERAKHIR per case — SUMBER kolom "Approval Task".
+    // Permintaan user 2026-10-30: kolom Approval Task HANYA menampilkan task
+    // yang statusnya Completed. Task Open/Rejected/other tidak ditampilkan
+    // (baris jadi '-'), tapi tetap disimpan di lastApproval supaya filter
+    // Status Approval dan logika delete (butuh status Open) tidak rusak.
+    $stmtCompletedApproval = $pdo->prepare(
+        "SELECT summary, owner, priority, status, approval_date
+         FROM ohrm_manpower_approval
+         WHERE case_id = :case_id
+           AND UPPER(TRIM(COALESCE(status, ''))) = 'COMPLETED'
          ORDER BY id DESC
          LIMIT 1"
     );
@@ -75,9 +90,13 @@ try {
         $stmtApproval->execute([':case_id' => $row['case_id']]);
         $approvalsData = $stmtApproval->fetchAll(PDO::FETCH_ASSOC);
 
-        // --- Ambil Approval Task TERAKHIR (kolom tabel FPTK) ---
+        // --- Ambil Approval Task TERAKHIR (filter/checkbox) ---
         $stmtLastApproval->execute([':case_id' => $row['case_id']]);
         $lastApprovalRow = $stmtLastApproval->fetch(PDO::FETCH_ASSOC);
+
+        // --- Ambil Approval Task COMPLETED terakhir (kolom tabel FPTK) ---
+        $stmtCompletedApproval->execute([':case_id' => $row['case_id']]);
+        $completedApprovalRow = $stmtCompletedApproval->fetch(PDO::FETCH_ASSOC);
 
         $approvals = [];
         foreach ($approvalsData as $app) {
@@ -109,13 +128,23 @@ try {
                     'owner' => $row['owner'],
                     'reqType' => $row['req_type'] ?? '-',
 
-                    // Approval Task TERAKHIR — untuk kolom tabel FPTK
+                    // Approval Task TERAKHIR — dipakai filter Status Approval + checkbox delete
                     'lastApproval' => $lastApprovalRow ? [
                 'summary'       => $lastApprovalRow['summary'] ?? '-',
                 'owner'         => $lastApprovalRow['owner'] ?? '-',
                 'priority'      => $lastApprovalRow['priority'] ?? '-',
                 'status'        => $lastApprovalRow['status'] ?? '-',
                 'approval_date' => $lastApprovalRow['approval_date'] ?? null,
+            ] : null,
+
+                    // Approval Task COMPLETED terakhir — SUMBER kolom "Approval Task".
+                    // null = case ini belum punya task Completed -> kolom tampil '-'
+                    'completedApproval' => $completedApprovalRow ? [
+                'summary'       => $completedApprovalRow['summary'] ?? '-',
+                'owner'         => $completedApprovalRow['owner'] ?? '-',
+                'priority'      => $completedApprovalRow['priority'] ?? '-',
+                'status'        => $completedApprovalRow['status'] ?? '-',
+                'approval_date' => $completedApprovalRow['approval_date'] ?? null,
             ] : null,
 
             // Masukkan data bersarang untuk modal

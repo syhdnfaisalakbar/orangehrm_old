@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/_config.php';
 require_once __DIR__ . '/_quota_approved.php';
+require_once __DIR__ . '/_acumatica_activity.php';
 
 /**
  * Sync Application Data to Acumatica Cases
@@ -725,59 +726,92 @@ if ($quotaPrefix !== '') {
 }
 
 // =============================================
-// 6. LOGIN ACUMATICA — reuse cookie kalo masih valid
+// 6. SESI ACUMATICA — pakai satu sesi bersama, bukan login baru tiap request
+//    (kuota "concurrent API logins" di SM201010 praktis 1; login berulang
+//    memicu HTTP 500 "The number of concurrent API logins ... reached").
 // =============================================
 $BASE_URL = ACUMATICA_BASE_URL;
 $COOKIE_FILE = __DIR__ . '/acumatica_cookies.txt';
 
-// Coba login. Kalo udah ada cookie, coba langsung PUT dulu
-$needLogin = true;
-if (file_exists($COOKIE_FILE) && filesize($COOKIE_FILE) > 0) {
-    // Coba PUT dulu (mungkin cookie masih valid)
-    $filter = urlencode("CaseID eq 'DUMMY'");
-    $testUrl = $BASE_URL . "/entity/Default/25.200.001/Case?\$filter=$filter";
-    $chTest = curl_init($testUrl);
-    curl_setopt_array($chTest, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST => 'PUT',
-        CURLOPT_POSTFIELDS => '{"Description":{"value":"test"}}',
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
-        CURLOPT_COOKIEFILE => $COOKIE_FILE,
-        CURLOPT_TIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    curl_exec($chTest);
-    $testHttp = curl_getinfo($chTest, CURLINFO_HTTP_CODE);
-    curl_close($chTest);
-    if ($testHttp >= 200 && $testHttp < 300) {
-        $needLogin = false; // Cookie masih valid
+// (a) Bersihkan sesi tertinggal dari request sebelumnya: kalau ada jar lama,
+//     tutup dulu supaya slot login-nya bebas. Ini penyebab utama error 500.
+if (file_exists($COOKIE_FILE)) {
+    $staleCookie = function_exists('acumaticaCookieFromJar') ? acumaticaCookieFromJar($COOKIE_FILE) : '';
+    if ($staleCookie !== '') {
+        try {
+            acumaticaActivityLogout($BASE_URL, $staleCookie);
+        } catch (\Throwable $e) {
+            // best-effort
+        }
     }
+    @unlink($COOKIE_FILE);
+}
+
+// (b) Ambil sesi bersama (cache + verifikasi ringan). Kalau berhasil, tulis
+//     cookie-nya ke jar agar seluruh curl di bawah tetap memakai cookie itu.
+$needLogin = true;
+$usingSharedSession = false;
+try {
+    $sharedSession = acumaticaActivitySession($BASE_URL);
+    if (!empty($sharedSession['ok'])
+        && acumaticaWriteJarFromCookieHeader($COOKIE_FILE, $BASE_URL, (string) ($sharedSession['cookie'] ?? ''))) {
+        $usingSharedSession = true;
+        $needLogin = false;
+    }
+} catch (\Throwable $e) {
+    $usingSharedSession = false;
 }
 
 if ($needLogin) {
-    $ch = curl_init($BASE_URL . '/entity/auth/login/');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode([
-            'name' => ACUMATICA_LOGIN_USER,
-            'password' => ACUMATICA_LOGIN_PASS,
-            'company' => ACUMATICA_COMPANY,
-        ]),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_COOKIEJAR => $COOKIE_FILE,
-        CURLOPT_COOKIEFILE => $COOKIE_FILE,
-        CURLOPT_TIMEOUT => 15,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $loginResp = curl_exec($ch);
-    $loginHttp = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    // Lepas sesi bersama dulu: kuota login Acumatica praktis 1, jadi sesi
+    // yang dipakai fitur Sync kandidat harus ditutup sebelum login di sini.
+    try {
+        if (function_exists('acumaticaReleaseSharedSession')) {
+            acumaticaReleaseSharedSession();
+        }
+    } catch (\Throwable $e) {
+        // best-effort
+    }
+    $loginHttp = 0;
+    $loginResp = '';
+    // Login sendiri hanya dipakai kalau sesi bersama gagal. Dicoba 2x karena
+    // HTTP 500 "concurrent API logins" biasanya karena slot bekas sesi lama.
+    for ($attempt = 1; $attempt <= 2; $attempt++) {
+        $ch = curl_init($BASE_URL . '/entity/auth/login/');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode([
+                'name' => ACUMATICA_LOGIN_USER,
+                'password' => ACUMATICA_LOGIN_PASS,
+                'company' => ACUMATICA_COMPANY,
+            ]),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_COOKIEJAR => $COOKIE_FILE,
+            CURLOPT_COOKIEFILE => $COOKIE_FILE,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $loginResp = curl_exec($ch);
+        $loginHttp = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($loginHttp >= 200 && $loginHttp < 300) {
+            break;
+        }
+        if ($attempt === 1) {
+            @unlink($COOKIE_FILE);
+            sleep(2);
+        }
+    }
 
     if ($loginHttp < 200 || $loginHttp >= 300) {
+        $loginBody = json_decode((string) $loginResp, true);
+        $loginReason = (string) ($loginBody['exceptionMessage'] ?? $loginBody['message'] ?? '');
         echo json_encode([
             'status' => 'error',
-            'message' => 'Gagal login ke Acumatica (HTTP ' . $loginHttp . ')',
+            'message' => 'Gagal login ke Acumatica (HTTP ' . $loginHttp . ')'
+                . ($loginReason !== '' ? ': ' . $loginReason : ''),
         ]);
         exit;
     }
@@ -827,29 +861,154 @@ if (!empty($autoClosedMprs)) {
 }
 
 // =============================================
-// 8. LOGOUT & RESPONSE
+// 7c. TASK DI TAB ACTIVITIES (Case Acumatica)
+// Helper ada di _acumatica_activity.php (dipisah supaya bisa diuji via CLI).
+// Summary Task = NAMA KANDIDAT. Idempotent: Task dengan Summary sama di Case
+// yang sama tidak dibuat ulang. Best-effort: gagal bikin Task TIDAK
+// menggagalkan sync Description.
 // =============================================
-$ch = curl_init($BASE_URL . '/entity/auth/logout/');
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST => true,
-    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-    CURLOPT_COOKIEFILE => $COOKIE_FILE,
-    CURLOPT_TIMEOUT => 10,
-    CURLOPT_SSL_VERIFYPEER => false,
-]);
-curl_exec($ch);
-curl_close($ch);
+// Jalankan pembuatan Task (Summary = nama kandidat yang di-sync)
+$taskResult = null;
+try {
+    $stmtName = $pdo->prepare(
+        "SELECT TRIM(CONCAT_WS(' ', first_name, NULLIF(middle_name, ''), last_name)) AS full_name
+         FROM ohrm_job_candidate
+         WHERE id = :cid
+         LIMIT 1"
+    );
+    $stmtName->execute([':cid' => $candidateId]);
+    $candidateName = (string) $stmtName->fetchColumn();
+
+    // CV kandidat (attachment terbaru) ikut dilampirkan ke field files Task.
+    // Opsional: kalau kandidat tidak punya attachment, Task tetap dibuat.
+    $attachment = null;
+    try {
+        $stmtAtt = $pdo->prepare(
+            "SELECT file_name, file_content
+             FROM ohrm_job_candidate_attachment
+             WHERE candidate_id = :cid AND file_content IS NOT NULL
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $stmtAtt->execute([':cid' => $candidateId]);
+        $att = $stmtAtt->fetch(PDO::FETCH_ASSOC);
+        if ($att && !empty($att['file_content'])) {
+            $attachment = [
+                'name'    => (string) $att['file_name'],
+                'content' => $att['file_content'],
+            ];
+        }
+    } catch (\Throwable $e) {
+        $attachment = null; // CV opsional — jangan menggagalkan sync
+    }
+
+    $taskResult = createCaseActivityTask($BASE_URL, $caseId, $candidateName, $attachment);
+} catch (\Throwable $e) {
+    $taskResult = ['status' => 'error', 'message' => 'Task gagal (dilewati): ' . $e->getMessage()];
+}
+
+// =============================================
+// 7d. SIMPAN STATUS TASK KE DB LOKAL
+// Dipakai field "Acumatica Task Status" di profil kandidat (tab Candidates).
+// Kenapa disimpan, bukan dibaca langsung saat buka profil: Acumatica membatasi
+// login bersamaan dan login bisa makan puluhan detik → jangan login per view.
+// Best-effort: gagal simpan tidak menggagalkan sync.
+// =============================================
+try {
+    $taskStatusForDb = is_array($taskResult) ? ($taskResult['task_status'] ?? null) : null;
+    if (
+        is_array($taskResult)
+        && in_array($taskResult['status'] ?? '', ['ok', 'skipped'], true)
+        && !empty($taskResult['task_id'])
+    ) {
+        $stmtUpsertTask = $pdo->prepare(
+            "INSERT INTO ohrm_candidate_acumatica_task
+                (candidate_id, case_id, task_id, task_summary, task_status, synced_at)
+             VALUES (:cid, :case_id, :task_id, :summary, :status, NOW())
+             ON DUPLICATE KEY UPDATE
+                case_id = VALUES(case_id),
+                task_id = VALUES(task_id),
+                task_summary = VALUES(task_summary),
+                task_status = VALUES(task_status),
+                synced_at = NOW()"
+        );
+        $stmtUpsertTask->execute([
+            ':cid'     => $candidateId,
+            ':case_id' => $caseId,
+            ':task_id' => (string) $taskResult['task_id'],
+            ':summary' => (string) ($taskResult['task_summary'] ?? ($candidateName ?? '')),
+            ':status'  => (string) ($taskStatusForDb ?? ''),
+        ]);
+        $taskResult['saved_to_db'] = true;
+    }
+} catch (\Throwable $e) {
+    if (is_array($taskResult)) {
+        $taskResult['saved_to_db'] = false;
+    }
+}
+
+// =============================================
+// 7e. NOTE STATUS KANDIDAT DI TAB ACTIVITIES
+// Summary Note = nama status kandidat (mis. "Interview Scheduled").
+// Hanya dibuat kalau statusnya berubah sejak pengiriman terakhir.
+// Memakai sesi login yang sudah ada di skrip ini (cookie jar), bukan login
+// baru — Acumatica membatasi login bersamaan.
+// Best-effort: gagal bikin Note tidak menggagalkan sync.
+// =============================================
+$statusNote = null;
+try {
+    require_once __DIR__ . '/_candidate_status_sync.php';
+    $cookieHeader = function_exists('acumaticaCookieFromJar')
+        ? acumaticaCookieFromJar($COOKIE_FILE)
+        : '';
+    if ($cookieHeader === '') {
+        $statusNote = ['status' => 'skipped', 'message' => 'Sesi Acumatica tidak terbaca'];
+    } else {
+        $parentTaskId = is_array($taskResult) ? (string) ($taskResult['task_id'] ?? '') : '';
+        $statusNote = acumaticaPushCandidateStatusNote($pdo, $candidateId, $caseId, $BASE_URL, $cookieHeader, $parentTaskId);
+    }
+} catch (\Throwable $e) {
+    $statusNote = ['status' => 'error', 'message' => 'Note status gagal (dilewati): ' . $e->getMessage()];
+}
+
+// =============================================
+// 8. LOGOUT & RESPONSE
+//    Kalau memakai sesi bersama, JANGAN logout: biarkan cache dipakai request
+//    lain (login berulang = pemicu SM201010). Hanya sesi hasil login sendiri
+//    yang ditutup di sini.
+// =============================================
+if (!$usingSharedSession) {
+    $ch = curl_init($BASE_URL . '/entity/auth/logout/');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '',
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Content-Length: 0'],
+        CURLOPT_COOKIEFILE => $COOKIE_FILE,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
 if (file_exists($COOKIE_FILE)) unlink($COOKIE_FILE);
 
 if ($httpCode >= 200 && $httpCode < 300) {
     $autoCloseNote = empty($autoCloseMessages) ? '' : ' | ' . implode('; ', $autoCloseMessages);
+    $taskNote = ($taskResult && !empty($taskResult['message']))
+        ? ' | Task Activities: ' . $taskResult['message']
+        : '';
+    $statusNoteMsg = ($statusNote && !empty($statusNote['message']))
+        ? ' | Note Status: ' . $statusNote['message']
+        : '';
     echo json_encode([
         'status' => 'ok',
-        'message' => "Berhasil update Case {$caseId} dengan " . count($allApplications) . " data aplikasi" . $autoCloseNote,
+        'message' => "Berhasil update Case {$caseId} dengan " . count($allApplications) . " data aplikasi" . $autoCloseNote . $taskNote . $statusNoteMsg,
         'updated' => 1,
         'total_apps' => count($allApplications),
         'auto_close' => $autoCloseMessages,
+        'activity' => $taskResult,
+        'status_note' => $statusNote,
     ]);
 } else {
     echo json_encode([

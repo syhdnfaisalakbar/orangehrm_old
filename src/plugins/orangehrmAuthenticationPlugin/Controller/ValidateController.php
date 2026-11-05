@@ -138,6 +138,12 @@ class ValidateController extends AbstractController implements PublicControllerI
         }
 
         $homePagePath = $this->getHomePageService()->getHomePagePath();
+        // Role tanpa baris di ohrm_home_page (mis. role yang dikecualikan dari ESS)
+        // membuat getHomePagePath() mengembalikan null. Jangan sampai fatal error:
+        // pakai dashboard sebagai halaman cadangan.
+        if (empty($homePagePath)) {
+            $homePagePath = 'dashboard/index';
+        }
         return $this->redirect($homePagePath);
     }
 }

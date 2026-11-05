@@ -65,12 +65,36 @@ class UserRole
     private bool $isPredefined;
 
     /**
+     * @var bool
+     *
+     * @ORM\Column(name="exclude_ess", type="boolean", options={"default" : 0})
+     */
+    private bool $excludeEss;
+
+    /**
      * Constructor
      */
     public function __construct()
     {
         $this->isAssignable = false;
         $this->isPredefined = false;
+        $this->excludeEss = false;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isExcludeEss(): bool
+    {
+        return $this->excludeEss ?? false;
+    }
+
+    /**
+     * @param bool $excludeEss
+     */
+    public function setExcludeEss(bool $excludeEss): void
+    {
+        $this->excludeEss = $excludeEss;
     }
 
     /**

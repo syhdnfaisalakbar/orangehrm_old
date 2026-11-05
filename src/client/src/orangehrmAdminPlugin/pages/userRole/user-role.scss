@@ -1,0 +1,68 @@
+// OrangeHRM - Admin > User Role
+.permission-link {
+  color: $oxd-primary-one-color;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.permission-locked {
+  color: $oxd-interface-gray-color;
+  font-size: 12px;
+}
+
+// Footer: info jumlah baris + pilihan baris per halaman + pagination
+.orangehrm-user-role-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.orangehrm-user-role-count {
+  font-size: 12px;
+  color: $oxd-interface-gray-color;
+}
+
+.orangehrm-user-role-bottom-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.orangehrm-user-role-page-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: $oxd-interface-gray-color;
+}
+
+.orangehrm-user-role-page-size-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 13px;
+  border: 1px solid $oxd-interface-gray-lighten-2-color;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: $oxd-interface-gray-color;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: $oxd-primary-one-color;
+    color: $oxd-primary-one-color;
+  }
+
+  &.--active {
+    background-color: $oxd-primary-one-color;
+    border-color: $oxd-primary-one-color;
+    color: #fff;
+  }
+}

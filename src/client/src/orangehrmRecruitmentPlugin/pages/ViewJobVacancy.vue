@@ -579,6 +579,8 @@ export default {
           casesDetail: mappedItems,
         };
 
+        // 5. Kirim data ke backend PHP lokal (hanya kalau ada yang ditarik)
+        let saveResult = null;
         if (payloadToSave.casesDetail.length > 0) {
           // 5. Kirim data ke backend PHP lokal
           const saveResponse = await fetch(
@@ -592,36 +594,54 @@ export default {
             },
           );
 
-          const saveResult = await saveResponse.json();
+          saveResult = await saveResponse.json();
           console.log('Status Simpan DB Lokal:', saveResult);
-
-          if (saveResult.status === 'error') {
-            Swal.fire({
-              title: 'Gagal',
-              icon: 'error',
-              text: 'Gagal simpan ke database lokal: ' + saveResult.message,
-            });
-          }
-
-          // Notif kalau ada case yang approval manpower request-nya masih Open
-          if (saveResult.open_approval && saveResult.open_approval.length > 0) {
-            Swal.fire({
-              title: 'Perhatian',
-              icon: 'warning',
-              html: `Approval manpower request masih Open untuk: ${saveResult.open_approval.join(
-                ', ',
-              )}.<br>Vacancy TIDAK disimpan.`,
-            });
-          }
         }
 
-        Swal.fire({
-          title: 'Sync Berhasil',
-          icon: 'success',
-          html: `Mendapatkan ${mappedItems.length} data Job Vacancy.`,
-        });
+        // 6. Ringkasan hasil — angka dari server (inserted/skipped/blocked),
+        //    BUKAN dari jumlah case yang ditarik. Dulu notif memakai
+        //    mappedItems.length sehingga "berhasil" muncul walau 0 tersimpan.
+        const fetched = mappedItems.length;
+        const inserted = Number(saveResult?.inserted ?? 0);
+        const skipped = Number(saveResult?.skipped ?? 0);
+        const blocked = Array.isArray(saveResult?.open_approval)
+          ? saveResult.open_approval
+          : [];
 
-        // 6. Refresh tabel Vacancy di layar (Cara yang benar untuk Vue.js)
+        if (saveResult && saveResult.status === 'error') {
+          await Swal.fire({
+            title: 'Gagal',
+            icon: 'error',
+            text: 'Gagal simpan ke database lokal: ' + saveResult.message,
+          });
+        } else {
+          // Peringatan approval ditampilkan lebih dulu dan ditunggu (await),
+          // supaya tidak langsung tertimpa popup sukses seperti sebelumnya.
+          if (blocked.length > 0) {
+            await Swal.fire({
+              title: 'Sebagian tidak tersimpan',
+              icon: 'warning',
+              html: `Approval manpower request belum Completed untuk: ${blocked.join(
+                ', ',
+              )}.<br>Vacancy untuk case tersebut TIDAK disimpan.`,
+            });
+          }
+
+          await Swal.fire({
+            title:
+              inserted > 0
+                ? 'Sync Berhasil'
+                : 'Sync Selesai — tidak ada vacancy baru',
+            icon: inserted > 0 ? 'success' : 'info',
+            html:
+              `Ditarik dari Acumatica: <b>${fetched}</b><br>` +
+              `Disimpan jadi vacancy baru: <b>${inserted}</b><br>` +
+              `Sudah ada (tidak dobel): <b>${skipped}</b><br>` +
+              `Ditahan approval MPR: <b>${blocked.length}</b>`,
+          });
+        }
+
+        // 7. Refresh tabel Vacancy di layar (Cara yang benar untuk Vue.js)
         await this.resetDataTable();
       } catch (error) {
         console.error('Gagal melakukan sync:', error);

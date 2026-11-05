@@ -32,6 +32,15 @@ class RecruitmentModuleController extends AbstractModuleController
     public function handle(): RedirectResponse
     {
         $defaultPath = $this->getHomePageService()->getRecruitmentModuleDefaultPath();
+        // Role tanpa baris ohrm_module_default_page untuk modul ini membuat
+        // getRecruitmentModuleDefaultPath() mengembalikan null -> redirect(NULL)
+        // melempar TypeError. Arahkan ke halaman default user.
+        if (empty($defaultPath)) {
+            $defaultPath = $this->getHomePageService()->getHomePagePath();
+        }
+        if (empty($defaultPath)) {
+            $defaultPath = 'dashboard/index';
+        }
         return $this->redirect($defaultPath);
     }
 }

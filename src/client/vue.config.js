@@ -28,6 +28,12 @@ module.exports = {
       alias: {
         '@ohrm/core': '@/core',
         '@ohrm/components': '@/core/components',
+        // Paksa `mitt` ke build CommonJS-nya (dist/mitt.js).
+        // Sebab: mitt 3.0.1 punya exports.require (CJS) dan exports.import (ESM).
+        // Konsumen UMD (mis. @ohrm/oxd) me-require mitt lalu memanggilnya sebagai
+        // fungsi; kalau webpack memilih varian ESM, yang didapat namespace
+        // {default: fn} -> runtime error "o is not a function" -> halaman putih.
+        'mitt$': path.resolve(__dirname, 'node_modules/mitt/dist/mitt.js'),
       },
     },
     plugins: [new DumpBuildTimestampPlugin()],

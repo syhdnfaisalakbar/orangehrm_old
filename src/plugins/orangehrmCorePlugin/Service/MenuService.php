@@ -39,9 +39,55 @@ class MenuService
     use AuthUserTrait;
     use I18NHelperTrait;
 
-    public const CORE_MENU_SIDE_PANEL_CACHE_KEY = 'core.menu.side_panel';
-    public const CORE_MENU_TOP_RIBBON_CACHE_KEY = 'core.menu.top_ribbon';
-    public const CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY = 'core.menu.top_ribbon_keys';
+    // Versi dasar cache menu (dipakai kalau file versi belum ada).
+    public const CORE_MENU_CACHE_VERSION = 'v2';
+
+    /**
+     * Versi cache menu yang dipakai saat ini. Dibaca dari file
+     * src/cache/orangehrm/.menu_version supaya bisa diubah saat runtime:
+     * setiap kali menu / hak akses role disimpan, versi dinaikkan sehingga
+     * semua sesi login lama membangun ulang menu tanpa perlu logout.
+     *
+     * @var string|null
+     */
+    private static ?string $menuCacheVersion = null;
+
+    public function getSidePanelCacheKey(): string
+    {
+        return 'core.menu.side_panel.' . $this->getMenuCacheVersion();
+    }
+
+    public function getTopRibbonKeysCacheKey(): string
+    {
+        return 'core.menu.top_ribbon_keys.' . $this->getMenuCacheVersion();
+    }
+
+    public function getMenuCacheVersion(): string
+    {
+        if (self::$menuCacheVersion === null) {
+            $file = dirname(__DIR__, 4) . '/src/cache/orangehrm/.menu_version';
+            $version = is_file($file) ? trim((string)@file_get_contents($file)) : '';
+            self::$menuCacheVersion = $version !== '' ? $version : self::CORE_MENU_CACHE_VERSION;
+        }
+
+        return self::$menuCacheVersion;
+    }
+
+    /**
+     * Naikkan versi cache menu (dipanggil setelah menu / hak akses role berubah).
+     */
+    public static function bumpMenuCacheVersion(): string
+    {
+        $dir = dirname(__DIR__, 4) . '/src/cache/orangehrm';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        $version = (string)time();
+        @file_put_contents($dir . '/.menu_version', $version);
+        self::$menuCacheVersion = $version;
+
+        return $version;
+    }
 
     /**
      * @var MenuDao|null
@@ -82,24 +128,24 @@ class MenuService
      */
     public function enableModuleMenuItems(string $moduleName, array $menuTitles = []): int
     {
-        $this->getAuthUser()->removeAttribute(self::CORE_MENU_SIDE_PANEL_CACHE_KEY);
-        foreach ($this->getAuthUser()->getAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY, []) as $topRibbonKey) {
+        $this->getAuthUser()->removeAttribute($this->getSidePanelCacheKey());
+        foreach ($this->getAuthUser()->getAttribute($this->getTopRibbonKeysCacheKey(), []) as $topRibbonKey) {
             $cacheKey = $this->generateCacheKeyForTopMenuItem($topRibbonKey);
             $this->getAuthUser()->removeAttribute($cacheKey);
         }
-        $this->getAuthUser()->removeAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY);
+        $this->getAuthUser()->removeAttribute($this->getTopRibbonKeysCacheKey());
 
         return $this->getMenuDao()->enableModuleMenuItems($moduleName, $menuTitles);
     }
 
     public function invalidateCachedMenuItems(): void
     {
-        $this->getAuthUser()->removeAttribute(self::CORE_MENU_SIDE_PANEL_CACHE_KEY);
-        foreach ($this->getAuthUser()->getAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY, []) as $topRibbonKey) {
+        $this->getAuthUser()->removeAttribute($this->getSidePanelCacheKey());
+        foreach ($this->getAuthUser()->getAttribute($this->getTopRibbonKeysCacheKey(), []) as $topRibbonKey) {
             $cacheKey = $this->generateCacheKeyForTopMenuItem($topRibbonKey);
             $this->getAuthUser()->removeAttribute($cacheKey);
         }
-        $this->getAuthUser()->removeAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY);
+        $this->getAuthUser()->removeAttribute($this->getTopRibbonKeysCacheKey());
     }
 
     /**
@@ -107,7 +153,7 @@ class MenuService
      */
     private function getDetailedSidePanelMenuItemsAlongWithCache(): array
     {
-        if (!$this->getAuthUser()->hasAttribute(self::CORE_MENU_SIDE_PANEL_CACHE_KEY)) {
+        if (!$this->getAuthUser()->hasAttribute($this->getSidePanelCacheKey())) {
             $userRoles = $this->getUserRoleManager()->getUserRolesForAuthUser();
             $sidePanelMenuItems = $this->getMenuDao()->getSidePanelMenuItems($userRoles);
 
@@ -119,10 +165,10 @@ class MenuService
                 }
                 $detailedSidePanelMenuItems[] = DetailedMenuItem::createFromMenuItem($sidePanelMenuItem);
             }
-            $this->getAuthUser()->setAttribute(self::CORE_MENU_SIDE_PANEL_CACHE_KEY, $detailedSidePanelMenuItems);
+            $this->getAuthUser()->setAttribute($this->getSidePanelCacheKey(), $detailedSidePanelMenuItems);
         }
 
-        return $this->getAuthUser()->getAttribute(self::CORE_MENU_SIDE_PANEL_CACHE_KEY);
+        return $this->getAuthUser()->getAttribute($this->getSidePanelCacheKey());
     }
 
     /**
@@ -137,9 +183,9 @@ class MenuService
             $topMenuItems = $this->getMenuDao()->getTopMenuItems($userRoles, $sidePanelMenuItemId);
             $this->getAuthUser()->setAttribute($cacheKey, $topMenuItems);
 
-            $topRibbonKeys = $this->getAuthUser()->getAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY, []);
+            $topRibbonKeys = $this->getAuthUser()->getAttribute($this->getTopRibbonKeysCacheKey(), []);
             $topRibbonKeys[] = $sidePanelMenuItemId;
-            $this->getAuthUser()->setAttribute(self::CORE_MENU_TOP_RIBBON_KEYS_CACHE_KEY, $topRibbonKeys);
+            $this->getAuthUser()->setAttribute($this->getTopRibbonKeysCacheKey(), $topRibbonKeys);
         }
 
         return $this->getAuthUser()->getAttribute($cacheKey);
@@ -151,7 +197,7 @@ class MenuService
      */
     private function generateCacheKeyForTopMenuItem(int $sidePanelMenuItemId): string
     {
-        return self::CORE_MENU_TOP_RIBBON_CACHE_KEY . ".$sidePanelMenuItemId";
+        return 'core.menu.top_ribbon.' . $this->getMenuCacheVersion() . ".$sidePanelMenuItemId";
     }
 
     /**

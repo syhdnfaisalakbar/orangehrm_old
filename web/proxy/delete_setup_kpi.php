@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_kpi_scope.php';
 /**
  * delete_setup_kpi.php
  *
@@ -63,9 +64,7 @@ try {
     $isAdmin = false;
     $memberDivisi = [];
     if ($emp > 0) {
-        $st = $pdo->prepare("SELECT user_role_id FROM ohrm_user WHERE emp_number = ? AND deleted = 0 LIMIT 1");
-        $st->execute([$emp]);
-        $isAdmin = ((int)$st->fetchColumn() === 1);
+        $isAdmin = kpiIsFullScope($pdo, $emp);
         if (!$isAdmin) {
             $st = $pdo->prepare("SELECT DISTINCT divisi FROM ohrm_kpi_division_member WHERE emp_number = ?");
             $st->execute([$emp]);

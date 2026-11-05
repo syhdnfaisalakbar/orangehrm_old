@@ -75,6 +75,15 @@
             </oxd-grid-item>
           </oxd-grid>
         </oxd-form-row>
+        <oxd-form-row>
+          <oxd-grid :cols="4" class="orangehrm-full-width-grid">
+            <oxd-grid-item>
+              <acumatica-task-status-dropdown
+                v-model="filters.acumaticaTaskStatus"
+              />
+            </oxd-grid-item>
+          </oxd-grid>
+        </oxd-form-row>
         <oxd-divider />
 
         <oxd-form-actions>
@@ -89,21 +98,27 @@
     </oxd-table-filter>
     <br />
     <div class="orangehrm-paper-container">
-      <div
-        v-if="$can.create('recruitment_candidates')"
-        class="orangehrm-header-container"
-      >
+      <div class="orangehrm-header-container">
         <oxd-button
+          v-if="$can.create('recruitment_candidates')"
           :label="$t('general.add')"
           icon-name="plus"
           display-type="secondary"
           @click="onClickAdd"
         />
+        <!-- Tarik status Task Acumatica untuk semua kandidat di tabel (1 login) -->
+        <oxd-button
+          :label="batchSyncing ? 'Syncing...' : 'Sync Acumatica'"
+          icon-name="cloud-upload"
+          display-type="secondary"
+          :disabled="batchSyncing"
+          @click="onSyncAllAcumatica"
+        />
       </div>
       <table-header
         :total="total"
         :loading="isLoading"
-        :show-divider="$can.create('recruitment_candidates')"
+        :show-divider="true"
       ></table-header>
       <div class="orangehrm-container">
         <oxd-card-table
@@ -152,10 +167,11 @@
         </div>
       </div>
     </div>
+    <acumatica-sync-result-dialog ref="syncDialog" />
   </div>
 </template>
 <script>
-import {computed, ref} from 'vue';
+import {computed, ref, onMounted} from 'vue';
 import {
   validSelection,
   validDateFormat,
@@ -168,6 +184,7 @@ import useLocale from '@/core/util/composable/useLocale';
 import {navigate} from '@ohrm/core/util/helper/navigation';
 import {APIService} from '@/core/util/services/api.service';
 import useDateFormat from '@/core/util/composable/useDateFormat';
+import useToast from '@/core/util/composable/useToast';
 import usePaginate from '@ohrm/core/util/composable/usePaginate';
 import {formatDate, parseDate} from '@ohrm/core/util/helper/datefns';
 import JobtitleDropdown from '@/orangehrmPimPlugin/components/JobtitleDropdown';
@@ -177,6 +194,9 @@ import CandidateAutocomplete from '@/orangehrmRecruitmentPlugin/components/Candi
 import HiringManagerDropdown from '@/orangehrmRecruitmentPlugin/components/HiringManagerDropdown';
 import CandidateStatusDropdown from '@/orangehrmRecruitmentPlugin/components/CandidateStatusDropdown';
 import CandidateStatusBadge from '@/orangehrmRecruitmentPlugin/components/CandidateStatusBadge';
+import AcumaticaTaskStatusCell from '@/orangehrmRecruitmentPlugin/components/AcumaticaTaskStatusCell';
+import AcumaticaTaskStatusDropdown from '@/orangehrmRecruitmentPlugin/components/AcumaticaTaskStatusDropdown';
+import AcumaticaSyncResultDialog from '@/orangehrmRecruitmentPlugin/components/AcumaticaSyncResultDialog';
 
 const defaultFilters = {
   jobTitle: null,
@@ -187,6 +207,7 @@ const defaultFilters = {
   candidate: null,
   fromDate: null,
   toDate: null,
+  acumaticaTaskStatus: null,
 };
 
 const defaultSortOrder = {
@@ -204,6 +225,8 @@ export default {
     'candidate-autocomplete': CandidateAutocomplete,
     'hiring-manager-dropdown': HiringManagerDropdown,
     'candidate-status-dropdown': CandidateStatusDropdown,
+    'acumatica-sync-result-dialog': AcumaticaSyncResultDialog,
+    'acumatica-task-status-dropdown': AcumaticaTaskStatusDropdown,
   },
 
   props: {
@@ -219,6 +242,9 @@ export default {
     const {locale} = useLocale();
     const {jsDateFormat, userDateFormat} = useDateFormat();
     const {$tEmpName} = useEmployeeNameTranslate();
+    // candidate_id -> status Task Acumatica. Dimuat sekali saat halaman dibuka,
+    // lalu disisipkan ke tiap baris oleh normalizer supaya kolomnya langsung terisi.
+    const acumaticaTaskMap = ref({});
     const statuses = [
       {id: 1, label: $t('recruitment.application_initiated')},
       {id: 2, label: $t('recruitment.shortlisted')},
@@ -256,6 +282,8 @@ export default {
             statuses.find((status) => status.id === item.status?.id)?.label ||
             '',
           statusId: item.status?.id,
+          // Kolom "Acumatica Task Status" (diisi saat Sync Application / Refresh)
+          acumaticaTaskStatus: acumaticaTaskMap.value[String(item.id)] || '',
           resume: item.hasAttachment,
           isSelectable: item.deletable,
         };
@@ -297,6 +325,8 @@ export default {
         fromDate: filters.value.fromDate,
         toDate: filters.value.toDate,
         status: filters.value.status?.id,
+        // filter tambahan fork ASG: status Task Acumatica (Open/Processing/Canceled)
+        acumaticaTaskStatus: filters.value.acumaticaTaskStatus?.id,
         model: 'list',
         sortField: sortField.value,
         sortOrder: sortOrder.value,
@@ -325,6 +355,91 @@ export default {
 
     onSort(execQuery);
 
+    // Muat peta status Task Acumatica sekali, lalu jalankan ulang query supaya
+    // baris tabel langsung membawa kolom "Acumatica Task Status" (tanpa login Acumatica).
+    const loadAcumaticaTaskStatuses = async () => {
+      try {
+        const rawBase = String(window.appGlobal?.baseUrl || '');
+        const baseUrl = rawBase
+          .replace(/\/index\.php.*$/i, '')
+          .replace(/\/$/, '');
+        const res = await fetch(
+          `${baseUrl}/proxy/get_candidates_task_status.php`,
+          {headers: {Accept: 'application/json'}},
+        );
+        const data = await res.json();
+        if (data && data.status === 'ok') {
+          acumaticaTaskMap.value = data.data || {};
+          execQuery();
+        }
+      } catch (e) {
+        // diamkan: kolom tampil '-' kalau endpoint tidak bisa dihubungi
+      }
+    };
+    // Tarik status Task Acumatica otomatis saat halaman dibuka/di-refresh,
+    // tanpa perlu klik tombol. Backend membatasi maksimal 1x per 60 detik dan
+    // memakai sesi bersama, jadi tidak membanjiri Acumatica.
+    const autoSyncAcumatica = async () => {
+      const rows = (response.value && response.value.data) || [];
+      const ids = rows.map((row) => row && row.id).filter(Boolean);
+      try {
+        const rawBase = String(window.appGlobal?.baseUrl || '');
+        const baseUrl = rawBase
+          .replace(/\/index\.php.*$/i, '')
+          .replace(/\/$/, '');
+        const idParam = ids.length ? `&candidate_ids=${ids.join(',')}` : '';
+        const res = await fetch(
+          `${baseUrl}/proxy/sync_candidates_task_status.php?auto=1${idParam}`,
+          {headers: {Accept: 'application/json'}},
+        );
+        const data = await res.json();
+        // Bantuan diagnosa: buka DevTools -> Console
+        console.info(
+          '[Acumatica] auto-sync:',
+          (data && data.status) || 'no-response',
+          (data && data.reason) ||
+            `${((data && data.updated) || []).length} kandidat`,
+        );
+        if (!data || data.status !== 'ok') return;
+
+        const merged = {...acumaticaTaskMap.value};
+        (data.updated || []).forEach((item) => {
+          merged[String(item.candidate_id)] = item.task_status || '';
+        });
+        acumaticaTaskMap.value = merged;
+        execQuery();
+
+        const changed = (data.updated || []).filter(
+          (item) => item.cv_action && item.cv_action !== 'none',
+        );
+        if (changed.length) {
+          const rejected = changed.filter(
+            (i) => i.cv_action === 'rejected',
+          ).length;
+          const restored = changed.filter(
+            (i) => i.cv_action === 'restored',
+          ).length;
+          const parts = [];
+          if (rejected) parts.push(`${rejected} kandidat di-Reject`);
+          if (restored) parts.push(`${restored} kandidat dipulihkan`);
+          const toast = useToast();
+          toast.success({
+            title: 'Status kandidat diperbarui',
+            message: `${parts.join(', ')} (Task Acumatica).`,
+          });
+        }
+      } catch (e) {
+        // diamkan: kolom tetap menampilkan data terakhir dari DB
+      }
+    };
+    onMounted(async () => {
+      // Penting: tunggu query tabel selesai dulu, kalau tidak `rows` masih kosong
+      // dan auto-sync tidak tahu kandidat mana yang harus ditarik.
+      await execQuery();
+      await loadAcumaticaTaskStatuses();
+      autoSyncAcumatica();
+    });
+
     return {
       http,
       showPaginator,
@@ -334,6 +449,8 @@ export default {
       pages,
       pageSize,
       execQuery,
+      // dipakai juga oleh tombol Sync Acumatica per baris (update peta status)
+      acumaticaTaskMap,
       items: response,
       filters,
       sortDefinition,
@@ -342,6 +459,8 @@ export default {
   },
   data() {
     return {
+      // true saat tombol toolbar "Sync Acumatica" sedang berjalan
+      batchSyncing: false,
       headers: [
         {
           name: 'vacancy',
@@ -376,6 +495,14 @@ export default {
           cellRenderer: this.cellRendererStatus,
         },
         {
+          // Status Task Acumatica (tab Activities). Sumber: DB lokal, diisi saat
+          // Sync Application to Acumatica atau tombol Refresh di profil kandidat.
+          name: 'acumaticaTaskStatus',
+          title: 'Acumatica Task Status',
+          style: {flex: 1},
+          cellRenderer: this.cellRendererAcumaticaTask,
+        },
+        {
           name: 'actions',
           slot: 'action',
           title: this.$t('general.actions'),
@@ -387,6 +514,12 @@ export default {
     };
   },
   methods: {
+    cellRendererAcumaticaTask(...[, , , row]) {
+      return {
+        component: AcumaticaTaskStatusCell,
+        props: {label: (row && row.acumaticaTaskStatus) || ''},
+      };
+    },
     cellRendererStatus(...[, , , row]) {
       return {
         component: CandidateStatusBadge,
@@ -429,6 +562,92 @@ export default {
       const fileUrl = 'recruitment/viewCandidateAttachment/candidateId';
       const downUrl = `${window.appGlobal.baseUrl}/${fileUrl}/${item.id}`;
       window.open(downUrl, '_blank');
+    },
+    // Tombol toolbar "Sync Acumatica": tarik status Task semua kandidat di tabel
+    // dengan SATU login Acumatica (endpoint batch), lalu refresh tabel.
+    async onSyncAllAcumatica() {
+      if (this.batchSyncing) return;
+      // items di halaman ini berbentuk {data: [...], meta: {...}} (lihat usePaginate),
+      // bukan array langsung -> jangan pakai Array.isArray(this.items).
+      const rows = (this.items && this.items.data) || [];
+      const ids = rows.map((r) => r && r.id).filter(Boolean);
+      if (!ids.length) {
+        if (this.$refs.syncDialog) {
+          this.$refs.syncDialog.showDialog({
+            ok: false,
+            message: 'Tidak ada kandidat di halaman ini.',
+          });
+        }
+        return;
+      }
+
+      this.batchSyncing = true;
+      try {
+        const rawBase = String(window.appGlobal?.baseUrl || '');
+        const baseUrl = rawBase
+          .replace(/\/index\.php.*$/i, '')
+          .replace(/\/$/, '');
+        const res = await fetch(
+          `${baseUrl}/proxy/sync_candidates_task_status.php?candidate_ids=${ids.join(
+            ',',
+          )}`,
+          {headers: {Accept: 'application/json'}},
+        );
+        const data = await res.json();
+        const nameById = {};
+        rows.forEach((r) => {
+          nameById[String(r.id)] = r.candidate || '';
+        });
+
+        if (data && data.status === 'ok') {
+          const merged = {...this.acumaticaTaskMap};
+          (data.updated || []).forEach((item) => {
+            merged[String(item.candidate_id)] = item.task_status || '';
+          });
+          this.acumaticaTaskMap = merged;
+          await this.execQuery();
+
+          const dialogRows = [
+            ...(data.updated || []).map((item) => ({
+              name:
+                item.summary ||
+                nameById[String(item.candidate_id)] ||
+                `#${item.candidate_id}`,
+              status: item.task_status || '-',
+              ok: true,
+              cvAction: item.cv_action || '',
+              cvFrom: item.cv_from || '',
+              cvTo: item.cv_to || '',
+            })),
+            ...(data.failed || []).map((item) => ({
+              name:
+                nameById[String(item.candidate_id)] || `#${item.candidate_id}`,
+              message: item.message || 'Dilewati',
+              ok: false,
+            })),
+          ];
+          if (this.$refs.syncDialog) {
+            this.$refs.syncDialog.showDialog({ok: true, rows: dialogRows});
+          }
+        } else {
+          const message =
+            (data && data.message) || 'Tidak ada respons dari server.';
+          if (this.$refs.syncDialog) {
+            this.$refs.syncDialog.showDialog({ok: false, message});
+          } else if (this.$toast) {
+            this.$toast.error({title: 'Sync Acumatica gagal', message});
+          }
+        }
+      } catch (e) {
+        const message = 'Gagal menghubungi server.';
+        if (this.$refs.syncDialog) {
+          this.$refs.syncDialog.showDialog({ok: false, message});
+        } else if (this.$toast) {
+          this.$toast.error({title: 'Sync Acumatica gagal', message});
+        }
+      } finally {
+        this.batchSyncing = false;
+      }
     },
     async filterItems() {
       await this.execQuery();

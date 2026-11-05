@@ -21,17 +21,23 @@ namespace OrangeHRM\Core\Authorization\UserRole;
 
 use OrangeHRM\Admin\Service\LocationService;
 use OrangeHRM\Dashboard\Traits\Service\QuickLaunchServiceTrait;
+use OrangeHRM\Entity\Candidate;
 use OrangeHRM\Entity\Employee;
 use OrangeHRM\Entity\Location;
 use OrangeHRM\Entity\PerformanceReview;
+use OrangeHRM\Entity\Vacancy;
 use OrangeHRM\Performance\Traits\Service\PerformanceReviewServiceTrait;
 use OrangeHRM\Pim\Traits\Service\EmployeeServiceTrait;
+use OrangeHRM\Recruitment\Traits\Service\CandidateServiceTrait;
+use OrangeHRM\Recruitment\Traits\Service\VacancyServiceTrait;
 
 class SupervisorUserRole extends AbstractUserRole
 {
     use EmployeeServiceTrait;
     use PerformanceReviewServiceTrait;
     use QuickLaunchServiceTrait;
+    use CandidateServiceTrait;
+    use VacancyServiceTrait;
 
     protected ?LocationService $locationService = null;
 
@@ -58,6 +64,13 @@ class SupervisorUserRole extends AbstractUserRole
                 return $this->getAccessibleLocationIds($requiredPermissions);
             case PerformanceReview::class:
                 return $this->getAccessibleReviewIds($requiredPermissions);
+            // Supervisor boleh melihat seluruh kandidat (read-only).
+            // Hak tulis tetap dikunci oleh data group di matriks hak akses.
+            case Candidate::class:
+                return $this->getCandidateService()->getCandidateDao()->getCandidateIdList();
+            // Vacancies juga read-only untuk Supervisor.
+            case Vacancy::class:
+                return $this->getVacancyService()->getVacancyDao()->getVacancyIdList();
             default:
                 return [];
         }
