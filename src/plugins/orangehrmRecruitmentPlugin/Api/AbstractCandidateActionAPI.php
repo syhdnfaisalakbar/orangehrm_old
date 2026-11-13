@@ -155,6 +155,24 @@ abstract class AbstractCandidateActionAPI extends Endpoint implements ResourceEn
                 $this->closeAcumaticaTaskBestEffort((int) $candidateId);
             }
 
+            // Fork ASG (permintaan Pak, 2026-11-12): aksi ubah status lain
+            // (Shortlist, Interview Scheduled, Interview Passed/Failed, Job Offered,
+            // Offer Declined) langsung push ke Acumatica dengan alur yang SAMA
+            // seperti tombol "Sync Application to Acumatica": tulis ulang Description
+            // Case, buat/cari Task kandidat, lampirkan CV, kirim Note status.
+            // Reject / Hire / Cancel Hire dilewati karena sudah punya hook sendiri
+            // (cancel/close Task + Note "Hired") supaya Note tidak dobel.
+            if (in_array($this->getResultingState(), [
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_SHORTLIST,
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_SHEDULE_INTERVIEW,
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_MARK_INTERVIEW_PASSED,
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_MARK_INTERVIEW_FAILED,
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_OFFER_JOB,
+                WorkflowStateMachine::RECRUITMENT_APPLICATION_ACTION_DECLINE_OFFER,
+            ], true)) {
+                $this->pushApplicationToAcumaticaBestEffort((int) $candidateId, (int) $vacancy->getId());
+            }
+
             return new EndpointResourceResult(CandidateHistoryDefaultModel::class, $result);
         } catch (RecordNotFoundException|ForbiddenException $e) {
             $this->rollBackTransaction();
@@ -217,17 +235,60 @@ abstract class AbstractCandidateActionAPI extends Endpoint implements ResourceEn
             }
             $result = acumaticaCloseCandidateTask($candidateId);
 
+            // Fork ASG (permintaan Pak, 2026-11-12): selain menutup task
+            // kandidat, tambahkan activity baru berlabel "Hired" di Case supaya
+            // jejak hiring terlihat eksplisit di tab Activities.
+            $hiredResult = null;
+            $hiredHelper = $root . '/web/proxy/_acumatica_task_hired.php';
+            if (is_file($hiredHelper)) {
+                require_once $hiredHelper;
+                if (function_exists('acumaticaCreateHiredActivity')) {
+                    $hiredResult = acumaticaCreateHiredActivity($candidateId);
+                }
+            }
+
             $logDir = $root . '/web/proxy/_cache';
             if (!is_dir($logDir)) {
                 @mkdir($logDir, 0775, true);
             }
             @file_put_contents(
                 $logDir . '/acumatica_hire.log',
-                date('c') . ' candidate=' . $candidateId . ' ' . json_encode($result) . PHP_EOL,
+                date('c') . ' candidate=' . $candidateId . ' ' . json_encode([
+                    'close_task' => $result,
+                    'hired_activity' => $hiredResult,
+                ]) . PHP_EOL,
                 FILE_APPEND
             );
         } catch (\Throwable $e) {
             // best-effort — jangan gagalkan hire
+        }
+    }
+
+    /**
+     * Push data aplikasi kandidat ke Acumatica SETELAH aksi ubah status di-commit.
+     * Alur sama dengan tombol "Sync Application to Acumatica" (endpoint
+     * web/proxy/sync_application_to_acumatica.php): Description Case ditulis ulang,
+     * Task kandidat dibuat/ditemukan + CV dilampirkan, Note status dikirim.
+     *
+     * Best-effort: kalau Acumatica bermasalah, perubahan status di OrangeHRM tetap
+     * tersimpan; hasilnya hanya dicatat ke log.
+     */
+    private function pushApplicationToAcumaticaBestEffort(int $candidateId, int $vacancyId): void
+    {
+        try {
+            $root = dirname(__DIR__, 4);
+            $helper = $root . '/web/proxy/_application_push.php';
+            if (!is_file($helper)) {
+                return;
+            }
+            require_once $helper;
+            if (!function_exists('acumaticaPushApplicationLogged')) {
+                return;
+            }
+
+            acumaticaPushApplicationLogged($candidateId, $vacancyId, 'state=' . $this->getResultingState());
+        } catch (\Throwable $e) {
+            // best-effort — jangan gagalkan perubahan status kandidat
         }
     }
 

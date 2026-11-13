@@ -21,16 +21,26 @@ namespace OrangeHRM\Performance\Controller;
 
 use Exception;
 use OrangeHRM\Core\Controller\AbstractModuleController;
+use OrangeHRM\Core\Traits\Auth\AuthUserTrait;
 use OrangeHRM\Framework\Http\RedirectResponse;
 
 class PerformanceModuleController extends AbstractModuleController
 {
+    use AuthUserTrait;
+
     /**
      * @return RedirectResponse
      * @throws Exception
      */
     public function handle(): RedirectResponse
     {
+        // Fork ASG: user role ESS yang membuka menu Performance langsung diarahkan ke
+        // tab Input Realisasi KPI (permintaan Pak), bukan halaman default module
+        // (ohrm_module_default_page role ESS = performance/myPerformanceReview).
+        if (strtoupper((string) $this->getAuthUser()->getUserRoleName()) === 'ESS') {
+            return $this->redirect('performance/inputRealisasiKpi');
+        }
+
         $defaultPath = $this->getHomePageService()->getPerformanceModuleDefaultPath();
         // Role tanpa baris ohrm_module_default_page membuat nilai ini null ->
         // redirect(NULL) memicu TypeError. Pakai halaman default user.

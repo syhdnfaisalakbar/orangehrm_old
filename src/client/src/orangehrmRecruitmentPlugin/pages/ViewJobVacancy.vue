@@ -195,7 +195,13 @@ export default {
   setup() {
     const {$t} = usei18n();
     const {$tEmpName} = useEmployeeNameTranslate();
-    const filters = ref({...defaultFilters});
+    const filters = ref({
+      ...defaultFilters,
+      // Default (permintaan Pak): tampilan awal hanya vacancy berstatus ACTIVE.
+      // Vacancy Closed / Rejected tidak muncul sampai user memilihnya di
+      // dropdown Status (atau mengosongkan filter untuk melihat semua).
+      status: {id: true, param: 'active', label: $t('general.active')},
+    });
     const {sortDefinition, sortField, sortOrder, onSort} = useSort({
       sortDefinition: defaultSortOrder,
     });

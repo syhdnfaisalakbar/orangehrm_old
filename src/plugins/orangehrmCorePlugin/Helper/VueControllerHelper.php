@@ -205,6 +205,9 @@ class VueControllerHelper
             'lastName' => $lastName,
             'profImgSrc' => $profileImgUrl,
             'hasPassword' => !is_null($user->getUserPassword()),
+            // Fork ASG: role utama user, dipakai template untuk penyesuaian tampilan
+            // khusus per role (mis. menyembunyikan kolom Search di sidebar untuk ESS).
+            'userRole' => $user->getUserRole() ? $user->getUserRole()->getName() : '',
         ];
     }
 

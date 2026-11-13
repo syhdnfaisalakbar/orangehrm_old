@@ -114,6 +114,28 @@ try {
                         ];
         }
 
+        // --- Kolom "Owner" = owner APPROVAL TASK, bukan owner case ---
+        // Permintaan Pak (2026-11-06): kolom Owner harus membaca owner approval
+        // task. Urutan sumber: task Completed terakhir → task terakhir → owner
+        // case (fallback kalau case belum punya task sama sekali).
+        // Nilai '-' / kosong dianggap tidak ada.
+        $ownerCandidates = [
+            $completedApprovalRow['owner'] ?? null,
+            $lastApprovalRow['owner'] ?? null,
+            $row['owner'] ?? null,
+        ];
+        $displayOwner = '-';
+        foreach ($ownerCandidates as $ownerCandidate) {
+            if (!is_scalar($ownerCandidate)) {
+                continue;
+            }
+            $ownerCandidate = trim((string) $ownerCandidate);
+            if ($ownerCandidate !== '' && $ownerCandidate !== '-') {
+                $displayOwner = $ownerCandidate;
+                break;
+            }
+        }
+
         // --- Gabungkan Semuanya ---
         $formattedData[] = [
                     'id' => $row['id'],
@@ -125,7 +147,7 @@ try {
                     'status' => $row['status'],
                     'subject' => $row['subject'],
                     'reason' => $row['reason'],
-                    'owner' => $row['owner'],
+                    'owner' => $displayOwner,
                     'reqType' => $row['req_type'] ?? '-',
 
                     // Approval Task TERAKHIR — dipakai filter Status Approval + checkbox delete

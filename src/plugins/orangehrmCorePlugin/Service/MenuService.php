@@ -23,6 +23,7 @@ use LogicException;
 use OrangeHRM\Core\Authorization\Service\ScreenPermissionService;
 use OrangeHRM\Core\Dao\MenuDao;
 use OrangeHRM\Core\Dto\ModuleScreen;
+use OrangeHRM\Core\Helper\ModuleScreenHelper;
 use OrangeHRM\Core\Menu\DetailedMenuItem;
 use OrangeHRM\Core\Menu\MenuConfigurator;
 use OrangeHRM\Core\Traits\Auth\AuthUserTrait;
@@ -87,6 +88,104 @@ class MenuService
         self::$menuCacheVersion = $version;
 
         return $version;
+    }
+
+    /**
+     * Fork ASG — menu samping KHUSUS per role.
+     *
+     * Menu di tabel ohrm_menu_item bersifat global (satu susunan untuk semua role),
+     * jadi kebutuhan "untuk ESS hanya Dashboard dan Performance" tidak bisa diatur
+     * lewat data. Di sini role tertentu punya daftar putih (whitelist) judul menu:
+     * menu yang tidak terdaftar DISEMBUNYIKAN dari sidebar, dan urutannya mengikuti
+     * urutan di daftar. Role lain tidak terpengaruh.
+     *
+     * Permintaan Pak (2026-11-13): role ESS → hanya Dashboard lalu Performance.
+     */
+    private const ROLE_SIDE_PANEL_MENU = [
+        'ESS' => ['Dashboard', 'Performance'],
+    ];
+
+    /**
+     * Tab (top ribbon) yang DISEMBUNYIKAN untuk role tertentu.
+     *
+     * Format: role => [judul menu induk (level 1) => [judul tab yang disembunyikan]].
+     * Menu induk dipakai sebagai pembatas supaya judul tab yang sama di modul lain
+     * (mis. "Configure" di PIM) tidak ikut hilang.
+     *
+     * Permintaan Pak (2026-11-13): role ESS di modul Performance cukup melihat tab
+     * Input Realisasi KPI (+ Approval); Configure, Manage Reviews, My Trackers dan
+     * Employee Trackers disembunyikan.
+     */
+    private const ROLE_HIDDEN_TOP_MENU = [
+        'ESS' => [
+            'Performance' => ['Configure', 'Manage Reviews', 'My Trackers', 'Employee Trackers'],
+        ],
+    ];
+
+    /**
+     * Saring tab (top ribbon) sesuai role user yang login.
+     *
+     * @param DetailedMenuItem[] $topMenuItems
+     * @return DetailedMenuItem[]
+     */
+    private function applyRoleHiddenTopMenu(array $topMenuItems, int $sidePanelMenuItemId): array
+    {
+        $roleName = strtoupper((string) $this->getAuthUser()->getUserRoleName());
+        $hiddenByParent = self::ROLE_HIDDEN_TOP_MENU[$roleName] ?? [];
+        if (empty($hiddenByParent)) {
+            return $topMenuItems;
+        }
+
+        foreach ($hiddenByParent as $parentTitle => $hiddenTitles) {
+            $parent = $this->getMenuDao()->getMenuItemByTitle($parentTitle, 1);
+            if (!$parent instanceof MenuItem || $parent->getId() !== $sidePanelMenuItemId) {
+                continue;
+            }
+            $filtered = array_values(array_filter(
+                $topMenuItems,
+                fn (DetailedMenuItem $item) => !in_array($item->getMenuTitle(), $hiddenTitles, true)
+            ));
+            // Pengaman: kalau semua tab tersaring (salah tulis judul), kembalikan asli.
+            return empty($filtered) ? $topMenuItems : $filtered;
+        }
+
+        return $topMenuItems;
+    }
+
+    /**
+     * Susun ulang menu samping sesuai prioritas role user yang login.
+     *
+     * @param DetailedMenuItem[] $items
+     * @return DetailedMenuItem[]
+     */
+    private function applyRoleSidePanelPriority(array $items): array
+    {
+        // PENTING: pakai ROLE UTAMA user (session `user.user_role_name`), bukan
+        // getUserRolesForAuthUser() — fungsi itu juga mengembalikan role ESS untuk
+        // Admin/Supervisor, sehingga urutan menu Admin ikut berubah.
+        $roleName = strtoupper((string) $this->getAuthUser()->getUserRoleName());
+        $allowedTitles = self::ROLE_SIDE_PANEL_MENU[$roleName] ?? [];
+        if (empty($allowedTitles)) {
+            return $items;
+        }
+
+        $allowedItems = [];
+        foreach ($items as $item) {
+            $position = array_search($item->getMenuTitle(), $allowedTitles, true);
+            if ($position !== false) {
+                $allowedItems[$position] = $item;
+            }
+        }
+
+        // Jangan sampai sidebar kosong gara-gara salah tulis judul menu:
+        // kalau tidak ada satu pun yang cocok, kembalikan menu asli.
+        if (empty($allowedItems)) {
+            return $items;
+        }
+
+        ksort($allowedItems);
+
+        return array_values($allowedItems);
     }
 
     /**
@@ -188,7 +287,10 @@ class MenuService
             $this->getAuthUser()->setAttribute($this->getTopRibbonKeysCacheKey(), $topRibbonKeys);
         }
 
-        return $this->getAuthUser()->getAttribute($cacheKey);
+        return $this->applyRoleHiddenTopMenu(
+            $this->getAuthUser()->getAttribute($cacheKey),
+            $sidePanelMenuItemId
+        );
     }
 
     /**
@@ -221,7 +323,9 @@ class MenuService
             $configuratorMenuItems = $this->getMenuItemChainForMenuItem($configurator->configure($screen));
         }
 
-        $detailedSidePanelMenuItems = $this->getDetailedSidePanelMenuItemsAlongWithCache();
+        $detailedSidePanelMenuItems = $this->applyRoleSidePanelPriority(
+            $this->getDetailedSidePanelMenuItemsAlongWithCache()
+        );
         $normalizedSidePanelMenuItems = [];
         $selectedSidePanelMenuId = null;
 
@@ -288,7 +392,41 @@ class MenuService
         if (!empty($configuratorMenuItems)) {
             return isset($configuratorMenuItems[$sidePanelMenuItem->getId()]);
         }
+
+        // Menu custom fork (Quota Request, History Quota, Manpower Request, Resource
+        // Fulfillments, Unplanned Report) semuanya ber-modul 'admin' dan sebagian
+        // memakai screen yang sama (viewSystemUsers); pembedanya hanya ?page=... di
+        // additional_params. Kalau yang dibandingkan cuma modul, item level-1 pertama
+        // yang modulnya cocok selalu dianggap aktif — akibatnya halaman custom ikut
+        // menampilkan tab milik Admin (User Role, User Management, Job, ...).
+        $currentPage = $this->getCurrentPageParam();
+        $additionalParams = $sidePanelMenuItem->getAdditionalParams();
+        if (is_array($additionalParams) && !empty($additionalParams['page'])) {
+            return $currentPage === (string) $additionalParams['page'];
+        }
+        if (!is_null($currentPage)) {
+            // Sedang di halaman custom (?page=...): hanya item yang mendeklarasikan
+            // page tersebut yang boleh aktif, item modul lain tidak.
+            return false;
+        }
+
         return $sidePanelMenuItem->getModule() === $currentModuleScreen->getOverriddenModule();
+    }
+
+    /**
+     * Nilai ?page= pada request saat ini (dipakai menu custom fork).
+     */
+    private function getCurrentPageParam(): ?string
+    {
+        $request = ModuleScreenHelper::getCurrentRequest();
+        if (is_null($request)) {
+            return null;
+        }
+        $page = $request->query->get('page');
+        if (!is_string($page) || $page === '') {
+            return null;
+        }
+        return $page;
     }
 
     /**

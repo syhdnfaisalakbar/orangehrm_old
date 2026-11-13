@@ -97,6 +97,17 @@ class CandidateDao extends BaseDao
             $qb->andWhere('candidateVacancy.status = :status')
                 ->setParameter('status', $candidateSearchFilterParams->getStatus());
         }
+        // Fork ASG: kecualikan status tertentu (default: HIRED disembunyikan).
+        // Kandidat yang belum punya baris vacancy (status NULL) TETAP tampil,
+        // karena mereka bukan Hired.
+        if (!is_null($candidateSearchFilterParams->getExcludeStatus())) {
+            $qb->andWhere(
+                $qb->expr()->orX(
+                    $qb->expr()->isNull('candidateVacancy.status'),
+                    $qb->expr()->neq('candidateVacancy.status', ':excludeStatus')
+                )
+            )->setParameter('excludeStatus', $candidateSearchFilterParams->getExcludeStatus());
+        }
         if (!empty($candidateSearchFilterParams->getKeywords())) {
             $keywords = $candidateSearchFilterParams->getKeywords();
             $qb->andWhere(

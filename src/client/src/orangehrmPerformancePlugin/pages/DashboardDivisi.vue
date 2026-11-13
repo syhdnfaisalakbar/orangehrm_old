@@ -24,6 +24,18 @@
                   :disabled="!isAdmin"
                 />
               </oxd-grid-item>
+              <!-- Filter Tahun (permintaan Pak, 2026-11-13): berlaku untuk ADMIN
+                   maupun ESS; langsung diterapkan tanpa tombol Search. -->
+              <oxd-grid-item>
+                <oxd-input-field
+                  v-model="draftTahun"
+                  type="select"
+                  :label="'Tahun'"
+                  :options="tahunOptions"
+                  :clearable="false"
+                  @update:model-value="onTahunChange"
+                />
+              </oxd-grid-item>
             </oxd-grid>
           </oxd-form-row>
 
@@ -47,7 +59,7 @@
             Pencapaian Divisi
           </oxd-text>
           <oxd-text tag="p" class="orangehrm-gauge-sub">
-            Rata-rata seluruh divisi (semua periode)
+            Rata-rata seluruh divisi ({{ periodeGaugeLabel }})
           </oxd-text>
         </div>
 
@@ -193,22 +205,15 @@
       </div>
 
       <div v-else>
-        <!-- Export PDF: baris tombol sendiri supaya terlihat ADMIN maupun ESS -->
-        <div class="orangehrm-export-bar">
-          <oxd-button
-            display-type="secondary"
-            :label="'Export PDF'"
-            type="button"
-            @click="onClickExportPdf"
-          />
-        </div>
-
+        <!-- Tombol Export PDF sengaja dihilangkan (permintaan Pak).
+             Method onClickExportPdf + builder PDF tetap disimpan di file ini
+             supaya mudah diaktifkan lagi kalau nanti dibutuhkan. -->
         <div class="orangehrm-table-wrap">
           <table class="oxd-table-data orangehrm-kpi-table">
             <thead>
               <tr>
                 <th style="width: 28%">Divisi</th>
-                <th style="width: 24%">Skor Semua Periode</th>
+                <th style="width: 24%">Skor {{ periodeLabel }}</th>
                 <th style="width: 28%">Status</th>
                 <th style="width: 20%">Aksi</th>
               </tr>
@@ -400,6 +405,9 @@ export default {
       divisions: [],
       selectedDivisi: null,
       draftDivisi: null,
+      // Filter tahun: draftTahun = objek opsi utk <select>, selectedTahun = angka tahun.
+      selectedTahun: null,
+      draftTahun: null,
       showDetail: false,
       detailDivisi: '',
       detailRows: [],
@@ -409,7 +417,9 @@ export default {
     statusColors() {
       return STATUS_COLOR;
     },
+    // Tahun yang sedang ditampilkan: ikut filter, kalau kosong pakai tahun terbaru.
     chartTahun() {
+      if (this.selectedTahun) return Number(this.selectedTahun);
       let tahun = null;
       this.divisiRows.forEach((r) => {
         if (r.periode) {
@@ -489,12 +499,35 @@ export default {
       // Admin: opsi "Semua Divisi" pertama → jadi default saat halaman dibuka.
       return [{id: 'all', label: 'Semua Divisi'}, ...divisiList];
     },
+    // Daftar tahun: gabungan tahun yang ada datanya + tahun berjalan
+    // (supaya filter tetap bisa dipakai walau data tahun ini belum ada),
+    // diurutkan terbaru di atas.
+    tahunOptions() {
+      const set = new Set();
+      this.rows.forEach((r) => {
+        const y = parseInt(String(r.periode || '').slice(0, 4), 10);
+        if (!Number.isNaN(y)) set.add(y);
+      });
+      set.add(new Date().getFullYear());
+      return Array.from(set)
+        .sort((a, b) => b - a)
+        .map((y) => ({id: y, label: String(y)}));
+    },
+    // Baris setelah disaring tahun terpilih (null = semua tahun).
+    rowsTahun() {
+      if (!this.selectedTahun) return this.rows;
+      return this.rows.filter(
+        (r) =>
+          parseInt(String(r.periode || '').slice(0, 4), 10) ===
+          Number(this.selectedTahun),
+      );
+    },
     divisiRows() {
       const d = this.selectedDivisi;
       if (!d) return [];
       const id = d.id ?? d; // oxd select: v-model = object opsi {id,label}
-      if (id === 'all') return this.rows;
-      return this.rows.filter((r) => r.divisi === id);
+      if (id === 'all') return this.rowsTahun;
+      return this.rowsTahun.filter((r) => r.divisi === id);
     },
     summaryRows() {
       // Filter kini berdasarkan DIVISI (bukan periode). Tiap divisi di-agregasi
@@ -558,9 +591,15 @@ export default {
       return d?.label ?? id;
     },
     periodeLabel() {
-      // Halaman kini difilter per DIVISI (agregasi lintas semua periode),
-      // sehingga label periode di tabel/modal selalu "Semua Periode".
-      return 'Semua Periode';
+      // Halaman difilter per DIVISI; label periode mengikuti filter Tahun.
+      return this.selectedTahun
+        ? `Tahun ${this.selectedTahun}`
+        : 'Semua Periode';
+    },
+    periodeGaugeLabel() {
+      return this.selectedTahun
+        ? `tahun ${this.selectedTahun}`
+        : 'semua periode';
     },
     isAllPeriods() {
       return true;
@@ -710,7 +749,7 @@ export default {
           ],
           columns: [
             {label: 'Divisi', width: 300},
-            {label: 'Skor Semua Periode', width: 160, align: 'right'},
+            {label: `Skor ${this.periodeLabel}`, width: 160, align: 'right'},
             {label: 'Status', width: 334},
           ],
           groups: [
@@ -836,6 +875,16 @@ export default {
           this.currentDivision = d.current_division || '';
           this.divisions = d.divisions || [];
           this.rows = d.rows || [];
+          // Default filter Tahun: tahun berjalan bila ada datanya, kalau tidak
+          // tahun terbaru yang tersedia.
+          if (this.tahunOptions.length) {
+            const now = new Date().getFullYear();
+            const opt =
+              this.tahunOptions.find((o) => o.id === now) ||
+              this.tahunOptions[0];
+            this.draftTahun = opt;
+            this.selectedTahun = opt.id;
+          }
           // Default divisi:
           //  - Admin: "Semua Divisi" (draft + applied), simpan object opsi.
           //  - ESS (non-admin): otomatis PADA divisi mapping user sbg default.
@@ -872,6 +921,11 @@ export default {
       // Terapkan pilihan divisi dari dropdown ke tampilan.
       this.selectedDivisi = this.draftDivisi || this.divisionOptions[0];
     },
+    // Filter tahun langsung diterapkan saat dipilih (ESS tidak punya tombol Search).
+    onTahunChange(opt) {
+      this.draftTahun = opt || null;
+      this.selectedTahun = opt ? opt.id ?? opt : null;
+    },
     onReset() {
       const semua = this.divisionOptions[0] || {
         id: 'all',
@@ -879,6 +933,14 @@ export default {
       };
       this.draftDivisi = semua;
       this.selectedDivisi = semua;
+      // Reset juga mengembalikan tahun ke default (tahun berjalan / terbaru).
+      if (this.tahunOptions.length) {
+        const now = new Date().getFullYear();
+        const opt =
+          this.tahunOptions.find((o) => o.id === now) || this.tahunOptions[0];
+        this.draftTahun = opt;
+        this.selectedTahun = opt.id;
+      }
     },
   },
 };

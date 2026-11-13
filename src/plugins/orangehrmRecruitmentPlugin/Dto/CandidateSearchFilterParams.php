@@ -64,6 +64,14 @@ class CandidateSearchFilterParams extends FilterParams
     protected ?string $status = null;
 
     /**
+     * Status yang DIKECUALIKAN dari hasil (fork ASG).
+     * Dipakai untuk menyembunyikan kandidat 'HIRED' secara default.
+     *
+     * @var string|null
+     */
+    protected ?string $excludeStatus = null;
+
+    /**
      * @var int|null
      */
     protected ?int $methodOfApplication = null;
@@ -219,6 +227,22 @@ class CandidateSearchFilterParams extends FilterParams
     public function setStatus(?string $status): void
     {
         $this->status = $status;
+    }
+
+    /**
+     * @return string|null
+     */
+    public function getExcludeStatus(): ?string
+    {
+        return $this->excludeStatus;
+    }
+
+    /**
+     * @param string|null $excludeStatus
+     */
+    public function setExcludeStatus(?string $excludeStatus): void
+    {
+        $this->excludeStatus = $excludeStatus;
     }
 
     /**

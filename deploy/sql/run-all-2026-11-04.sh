@@ -14,11 +14,27 @@
 
 set -euo pipefail
 
-DB_HOST="${DB_HOST:-127.0.0.1}"
-DB_NAME="${DB_NAME:-orangehrm}"
-DB_USER="${DB_USER:-orangehrm}"
-
 cd "$(dirname "$0")"
+
+DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_USER="${DB_USER:-orangehrm}"
+DB_NAME="${DB_NAME:-}"
+
+# Nama DB diambil dari lib/confs/Conf.php kalau DB_NAME tidak diberikan.
+# Jangan pakai default 'orangehrm' buta: di server produksi nama DB bisa lain
+# (mis. orangehrm_backup) sehingga SQL masuk ke DB yang salah / tidak ada.
+if [ -z "$DB_NAME" ]; then
+  PHP_BIN="${PHP_BIN:-}"
+  if [ -z "$PHP_BIN" ]; then
+    for c in php php8.2 php8.1 php8.0; do
+      command -v "$c" >/dev/null 2>&1 && { PHP_BIN="$c"; break; }
+    done
+  fi
+  if [ -n "$PHP_BIN" ] && [ -f ../../lib/confs/Conf.php ]; then
+    DB_NAME="$("$PHP_BIN" -r 'require "../../lib/confs/Conf.php"; echo (new Conf())->getDbName();' 2>/dev/null || true)"
+  fi
+  DB_NAME="${DB_NAME:-orangehrm}"
+fi
 
 FILES=(
   candidate-acumatica-task.sql

@@ -10,5 +10,9 @@ SET @q := IF(@col = 0,
     'SELECT 1');
 PREPARE stmt FROM @q; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- Supervisor (role 3) tanpa akses ESS
-UPDATE ohrm_user_role SET exclude_ess = 1 WHERE name = 'Supervisor';
+-- Role 3 tanpa akses ESS. Dicari lewat id 3 ATAU nama: di lokal role ini
+-- sudah di-rename jadi 'MPP', di server lain bisa masih 'Supervisor'.
+-- Menulis hanya `WHERE name = 'Supervisor'` akan kena 0 baris di DB yang
+-- role-nya bernama MPP (gejala: menu ESS masih muncul untuk user MPP).
+UPDATE ohrm_user_role SET exclude_ess = 1
+ WHERE id = 3 OR name IN ('MPP', 'Supervisor');

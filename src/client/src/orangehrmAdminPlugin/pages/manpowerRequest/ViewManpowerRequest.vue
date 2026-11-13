@@ -4,12 +4,21 @@
     <oxd-table-filter :filter-title="'Manpower Request (FPTK)'">
       <oxd-form @submit-valid="filterItems">
         <oxd-form-row>
-          <oxd-grid :cols="5" class="orangehrm-full-width-grid">
+          <oxd-grid :cols="3" class="orangehrm-full-width-grid">
             <oxd-grid-item>
               <oxd-input-field
                 v-model="filters.caseId"
                 :label="'Case ID'"
                 placeholder="Ex: 0000003655"
+              />
+            </oxd-grid-item>
+            <oxd-grid-item>
+              <oxd-input-field
+                v-model="filters.caseStatus"
+                type="select"
+                :label="'Status'"
+                :clear="false"
+                :options="caseStatusOptions"
               />
             </oxd-grid-item>
             <oxd-grid-item>
@@ -547,6 +556,14 @@ import RequestTypeBadge from '@/orangehrmAdminPlugin/components/RequestTypeBadge
 import ApprovalTaskBadge from '@/orangehrmAdminPlugin/components/ApprovalTaskBadge.vue';
 import Swal from 'sweetalert2';
 
+// Opsi filter Status Case. Default tabel = hanya 'Open' (permintaan Pak,
+// 2026-11-10): data Closed tidak dimunculkan sampai user memilih filternya.
+const CASE_STATUS_OPTIONS = [
+  {id: 'Open', label: 'Open'},
+  {id: 'Closed', label: 'Closed'},
+  {id: 'All', label: 'Semua Status'},
+];
+
 export default {
   name: 'ViewManpowerRequest',
   data() {
@@ -569,8 +586,11 @@ export default {
       historyLoading: false,
 
       // --- STATE FILTER PENCARIAN ---
+      caseStatusOptions: CASE_STATUS_OPTIONS,
       filters: {
         caseId: '',
+        // Default: tabel hanya menampilkan case berstatus Open.
+        caseStatus: CASE_STATUS_OPTIONS[0],
         approvalStatus: null,
         reqType: null,
         department: null,
@@ -773,6 +793,7 @@ export default {
       const q = String(this.filters.caseId || '')
         .trim()
         .toLowerCase();
+      const caseStatus = this.filters.caseStatus?.id || null;
       const approvalStatus = this.filters.approvalStatus?.id || null;
       const reqType = this.filters.reqType?.id || null;
       const dept = this.filters.department?.id || null;
@@ -784,6 +805,15 @@ export default {
           String(r.caseId || '')
             .toLowerCase()
             .includes(q),
+        );
+      }
+      // Filter Status Case (Open/Closed). 'All' = tampilkan semua.
+      if (caseStatus && caseStatus !== 'All') {
+        filtered = filtered.filter(
+          (r) =>
+            String(r.status || '')
+              .trim()
+              .toLowerCase() === String(caseStatus).toLowerCase(),
         );
       }
       if (approvalStatus) {
@@ -827,6 +857,8 @@ export default {
     onClickReset() {
       this.filters = {
         caseId: '',
+        // Reset kembali ke tampilan default (hanya Open), bukan kosong.
+        caseStatus: CASE_STATUS_OPTIONS[0],
         approvalStatus: null,
         reqType: null,
         department: null,
@@ -931,6 +963,7 @@ export default {
       this.isLoading = true;
       let skippedMessage = '';
       let overQuotaMessage = '';
+      let ownerMessage = '';
 
       try {
         // Pastikan data lokal termuat SEBELUM menghitung window sync.
@@ -1311,6 +1344,44 @@ export default {
           }
         }
 
+        // --- 3b. SET OWNER CASE ACUMATICA = user OrangeHRM yang login ---
+        // Fork ASG (permintaan user): setiap klik Sync, Owner Case REQFPTK
+        // berstatus New/Open di Acumatica diubah ke user yang menekan tombol.
+        // Identitas user dibaca endpoint dari SESSION OrangeHRM, bukan dari
+        // browser. Kegagalan di sini TIDAK menggagalkan sync data.
+        try {
+          const ownerResponse = await fetch(
+            baseUrl + '/proxy/sync_manpower_owner.php',
+            {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({}),
+            },
+          );
+          const ownerResult = await ownerResponse.json();
+          console.log('Status Set Owner Acumatica:', ownerResult);
+
+          // Aturan (permintaan Pak): Owner hanya diisi kalau masih kosong, dan
+          // hasilnya TIDAK ditampilkan di popup (cukup di console untuk debug).
+          // Hanya kondisi yang butuh tindakan (owner tidak ditemukan / gagal)
+          // yang dimunculkan sebagai peringatan.
+          if (ownerResult && ownerResult.status === 'owner_not_found') {
+            ownerMessage = `\n\n⚠ Owner Acumatica TIDAK ditemukan untuk "${ownerResult.employee_name}". Owner case tidak diubah — perlu mapping manual di tabel ohrm_employee_acumatica_owner.`;
+          } else if (
+            ownerResult &&
+            (ownerResult.status === 'error' ||
+              ownerResult.status === 'not_authenticated')
+          ) {
+            ownerMessage = `\n\n⚠ Set Owner Acumatica dilewati: ${
+              ownerResult.message || ownerResult.status
+            }`;
+          }
+        } catch (ownerError) {
+          console.error('Gagal set Owner Acumatica:', ownerError);
+          ownerMessage =
+            '\n\n⚠ Set Owner Acumatica gagal dihubungi. Sync data tetap tersimpan.';
+        }
+
         // Penting: refresh dari database lokal, bukan data mentah Acumatica.
         // Status di DB bisa beda dari Acumatica — auto-link memaksa MPR ke
         // 'Closed' jika SEMUA vacancy yang ter-link sudah closed.
@@ -1322,7 +1393,7 @@ export default {
         Swal.fire({
           title: 'Sync Berhasil',
           icon: 'success',
-          html: `Mendapatkan ${fetchedCount} data Manpower Request beserta Approval-nya.${skippedMessage}${overQuotaMessage}${approverNotFoundMessage}${
+          html: `Mendapatkan ${fetchedCount} data Manpower Request beserta Approval-nya.${skippedMessage}${overQuotaMessage}${approverNotFoundMessage}${ownerMessage}${
             approvalUpdates.length > 0
               ? `\n\nℹ Approval ${approvalUpdates.length} case lama turut dicek/diperbarui.`
               : ''

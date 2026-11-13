@@ -95,6 +95,35 @@ preflight() {
         else { echo "  [OK]   semua ".count($need)." tabel custom ada".PHP_EOL; }
       } catch (Throwable $e) { echo "  [GAGAL] cek tabel: ".$e->getMessage().PHP_EOL; }'
   fi
+
+  # prasyarat SQL rilis deploy/sql — kalau bolong, API/menu baru balas 403 "Unauthorized"
+  if [ -f web/proxy/config.php ] && [ -n "$PHP_BIN" ]; then
+    "$PHP_BIN" -r '
+      require "web/proxy/_config.php";
+      try {
+        $pdo = new PDO("mysql:host=".PROXY_DB_HOST.";port=".PROXY_DB_PORT.";dbname=".PROXY_DB_NAME, PROXY_DB_USER, PROXY_DB_PASS);
+        echo "  [INFO] DB aplikasi: ".PROXY_DB_NAME.PHP_EOL;
+        $q = function (string $sql) use ($pdo) { return (int)$pdo->query($sql)->fetchColumn(); };
+        $items = [
+          "kolom ohrm_user_role.exclude_ess"       => count($pdo->query("SHOW COLUMNS FROM ohrm_user_role LIKE \"exclude_ess\"")->fetchAll()) > 0,
+          "tabel ohrm_candidate_acumatica_task"    => $q("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=\"ohrm_candidate_acumatica_task\"") > 0,
+          "data group apiv2_admin_user_roles"      => $q("SELECT COUNT(*) FROM ohrm_data_group WHERE name=\"apiv2_admin_user_roles\"") > 0,
+          "izin API UserRoleAPI"                   => $q("SELECT COUNT(*) FROM ohrm_api_permission WHERE api_name LIKE \"%UserRoleAPI\"") > 0,
+          "izin API UserRolePermissionAPI"         => $q("SELECT COUNT(*) FROM ohrm_api_permission WHERE api_name LIKE \"%UserRolePermissionAPI\"") > 0,
+          "screen + menu User Role"                => $q("SELECT COUNT(*) FROM ohrm_menu_item m JOIN ohrm_screen s ON s.id=m.screen_id WHERE s.action_url=\"userRole\"") > 0,
+          "home page role Supervisor/MPP (id 3)"   => $q("SELECT COUNT(*) FROM ohrm_home_page WHERE user_role_id=3") > 0,
+          "role BOD"                               => $q("SELECT COUNT(*) FROM ohrm_user_role WHERE name=\"BOD\"") > 0,
+        ];
+        $fail = 0;
+        foreach ($items as $label => $ok) {
+          if ($ok) { echo "  [OK]   ".$label.PHP_EOL; }
+          else { echo "  [GAGAL] ".$label." BELUM ADA — jalankan deploy/sql/run-all-2026-11-04.sh".PHP_EOL; $fail++; }
+        }
+        if ($fail > 0) {
+          echo "  [INFO] SQL rilis belum lengkap: menu/API baru akan balas 403 Unauthorized.".PHP_EOL;
+        }
+      } catch (Throwable $e) { echo "  [GAGAL] cek prasyarat SQL: ".$e->getMessage().PHP_EOL; }'
+  fi
   echo
 }
 

@@ -20,7 +20,10 @@
 
 <template>
   <oxd-grid class="orangehrm-dashboard-grid" :cols="3">
-    <oxd-grid-item class="orangehrm-dashboard-widget">
+    <oxd-grid-item
+      v-if="$can.read('dashboard_resource_fulfillment_widget')"
+      class="orangehrm-dashboard-widget"
+    >
       <resource-fulfillment-widget></resource-fulfillment-widget>
     </oxd-grid-item>
     <oxd-grid-item

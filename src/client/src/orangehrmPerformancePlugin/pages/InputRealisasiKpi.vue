@@ -110,7 +110,7 @@
             <oxd-button
               class="orangehrm-left-space"
               display-type="success"
-              label="Export Excel"
+              label="Export"
               type="button"
               :disabled="isLoading || filteredRowCount === 0"
               @click="exportExcel"
@@ -131,7 +131,7 @@
         <oxd-button
           icon-name="plus"
           display-type="secondary"
-          label="Add"
+          label="Add Indikator"
           @click="toggleAdd"
         />
       </div>
@@ -557,11 +557,29 @@
               </tbody>
             </table>
           </div>
+          <!-- Pagination PER PERIODE (permintaan Pak, 2026-11-13): satu halaman =
+               satu periode, geser dgn tombol kanan/kiri. -->
           <div
             v-if="pages > 1"
             class="orangehrm-bottom-container orangehrm-pagination"
           >
-            <oxd-pagination v-model:current="currentPage" :length="pages" />
+            <oxd-icon-button
+              name="chevron-left"
+              :with-container="true"
+              :disabled="currentPage <= 1"
+              title="Periode sebelumnya"
+              @click="prevPeriode"
+            />
+            <span class="orangehrm-pagination-label">
+              {{ currentPeriodeLabel }}
+            </span>
+            <oxd-icon-button
+              name="chevron-right"
+              :with-container="true"
+              :disabled="currentPage >= pages"
+              title="Periode berikutnya"
+              @click="nextPeriode"
+            />
           </div>
         </div>
 
@@ -605,11 +623,7 @@ import {
 import {OxdDialog} from '@ohrm/oxd';
 import Swal from 'sweetalert2';
 import useDateFormat from '@/core/util/composable/useDateFormat';
-import {
-  downloadXlsx,
-  XLSX_STYLE,
-  statusStyleForColor,
-} from '../utils/xlsxReport';
+import {XLSX_STYLE, statusStyleForColor} from '../utils/xlsxReport';
 import {
   divisiCode as divisiCodeOf,
   divisiName as divisiNameOf,
@@ -624,10 +638,6 @@ const numberBetweenMinMax = (min, max) => (value) => {
   if (Number.isNaN(v)) return `Should be a number between ${min}-${max}`;
   return (v >= min && v <= max) || `Should be a number between ${min}-${max}`;
 };
-
-// Jumlah GRUP (divisi × periode) per halaman pada tabel Input Realisasi KPI.
-// Pagination dipotong per grup supaya baris "TOTAL BOBOT" tidak terpecah.
-const PAGE_SIZE = 4;
 
 // Nama bulan Indonesia (dipakai format periode & label jadwal penginputan).
 const MONTH_NAMES = [
@@ -645,8 +655,32 @@ const MONTH_NAMES = [
   'Desember',
 ];
 
-// Kolom file Export Excel (.xlsx) — mirror kolom tabel + kolom Satuan
-// (Target dipisah dari satuannya supaya di Excel tetap angka & bisa dijumlah).
+// Nilai mentah sebuah sel {v, s} — style tidak dipakai di file CSV.
+const csvCellValue = (cell) => (cell && cell.v !== undefined ? cell.v : '');
+
+// Unduh CSV tanpa dependency. Kutip/koma/baris baru di-escape, dan BOM UTF-8
+// ditambahkan supaya Excel (Windows) membaca huruf non-ASCII dengan benar.
+const downloadCsv = (fileName, matrix) => {
+  const escapeCell = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = matrix.map((row) => row.map(escapeCell).join(',')).join('\r\n');
+  const blob = new Blob([`\uFEFF${csv}`], {
+    type: 'text/csv;charset=utf-8;',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// Kolom file Export Spreadsheet (.csv) — mirror kolom tabel + kolom Satuan
+// (Target dipisah dari satuannya supaya di spreadsheet tetap angka & bisa dijumlah).
 const EXPORT_COLUMNS = [
   {title: 'Indikator', width: 38},
   {title: 'Divisi', width: 16},
@@ -956,15 +990,35 @@ export default {
     filteredRowCount() {
       return this.filteredGroups.reduce((a, g) => a + g.rows.length, 0);
     },
-    // Jumlah halaman tabel (dipakai oxd-pagination :length). Dipotong per grup.
-    pages() {
-      return Math.ceil(this.filteredGroups.length / PAGE_SIZE);
+    // Daftar periode yang ada datanya (unik, terbaru di atas) — satu periode
+    // menjadi satu halaman tabel.
+    periodeList() {
+      const list = [];
+      this.filteredGroups.forEach((g) => {
+        if (g.periode && !list.includes(g.periode)) list.push(g.periode);
+      });
+      return list.sort((a, b) => String(b).localeCompare(String(a)));
     },
-    // Potongan grup utk halaman aktif — grup utuh supaya baris TOTAL BOBOT
-    // tidak terpecah ke halaman lain.
+    // Jumlah halaman = jumlah periode.
+    pages() {
+      return Math.max(1, this.periodeList.length);
+    },
+    currentPeriode() {
+      return this.periodeList[this.currentPage - 1] || null;
+    },
+    currentPeriodeLabel() {
+      const total = this.periodeList.length;
+      if (!total || !this.currentPeriode) return '';
+      return `${this.formatPeriode(this.currentPeriode)} · ${
+        this.currentPage
+      } dari ${total}`;
+    },
+    // Halaman aktif = SEMUA grup (divisi × cabang) pada periode itu, utuh,
+    // supaya baris TOTAL BOBOT tidak terpecah ke halaman lain.
     paginatedGroups() {
-      const start = (this.currentPage - 1) * PAGE_SIZE;
-      return this.filteredGroups.slice(start, start + PAGE_SIZE);
+      const periode = this.currentPeriode;
+      if (!periode) return [];
+      return this.filteredGroups.filter((g) => g.periode === periode);
     },
   },
   watch: {
@@ -995,6 +1049,13 @@ export default {
     // Kode divisi dari opsi dropdown (atau string kode langsung).
     divisiCode(opt) {
       return divisiCodeOf(opt);
+    },
+    // Geser halaman per periode.
+    prevPeriode() {
+      if (this.currentPage > 1) this.currentPage -= 1;
+    },
+    nextPeriode() {
+      if (this.currentPage < this.pages) this.currentPage += 1;
     },
     locked(r) {
       return !!r.submitted;
@@ -1285,30 +1346,25 @@ export default {
       const s = this.groupSkor(g);
       return `orangehrm-status ${statusColor(s)}`;
     },
-    // --- Export Excel (.xlsx, zero-dep) ---------------------------------
+    // --- Export Spreadsheet (.csv, zero-dep) -----------------------------
     // Diexport = SEMUA grup hasil filter (bukan hanya halaman pagination
     // aktif), bentuknya mirror tabel: baris indikator + baris TOTAL BOBOT.
+    // Baris judul/filter tidak ikut supaya kolom CSV langsung lurus (rapi saat
+    // dibuka di Excel / Google Sheets dan gampang difilter).
     exportExcel() {
       const groups = this.filteredGroups;
       if (!groups.length) return;
-      const rows = [];
-      rows.push([{v: 'Input Realisasi KPI', s: XLSX_STYLE.TITLE}]);
-      rows.push([{v: this.exportFilterText(), s: XLSX_STYLE.META}]);
-      rows.push([{v: `Export: ${this.exportStamp()}`, s: XLSX_STYLE.META}]);
-      rows.push([]);
-      rows.push(
-        EXPORT_COLUMNS.map((c) => ({v: c.title, s: XLSX_STYLE.HEADER})),
-      );
+      const matrix = [EXPORT_COLUMNS.map((c) => c.title)];
       for (const g of groups) {
-        for (const r of g.rows) rows.push(this.exportDataRow(r));
-        rows.push(this.exportTotalRow(g));
+        for (const r of g.rows) {
+          matrix.push(this.exportDataRow(r).map(csvCellValue));
+        }
+        matrix.push(this.exportTotalRow(g).map(csvCellValue));
       }
-      downloadXlsx({
-        fileName: `Input_Realisasi_KPI_${this.exportStamp('file')}.xlsx`,
-        sheetName: 'Input Realisasi KPI',
-        columns: EXPORT_COLUMNS,
-        rows,
-      });
+      downloadCsv(
+        `Input_Realisasi_KPI_${this.exportStamp('file')}.csv`,
+        matrix,
+      );
     },
     // Label filter aktif untuk baris meta di file (mengikuti filter Search).
     exportFilterText() {
@@ -1945,8 +2001,18 @@ export default {
 /* Pagination tabel Input Realisasi KPI — center & beri jarak dari tabel */
 .orangehrm-pagination {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.75rem;
   margin-top: 0.75rem;
+}
+
+.orangehrm-pagination-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  min-width: 180px;
+  text-align: center;
 }
 
 .oxd-table-data {

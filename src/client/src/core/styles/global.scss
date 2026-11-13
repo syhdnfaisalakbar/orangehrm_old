@@ -165,3 +165,65 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+// ============================================================
+// Fork ASG — sidebar: kolom Search khusus ESS + tombol lipat
+// ============================================================
+// Baris pencarian sidebar dibuat flex supaya tombol lipat sidebar ikut arus
+// (bukan absolute yg menimpa input). Baris bawaan punya lebar tetap ~286px
+// karena dibuat untuk input pencarian; di sini dipaksa ikut lebar sidebar.
+.oxd-main-menu-search {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 8px 12px 8px 24px !important;
+}
+
+.oxd-main-menu-search input.oxd-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto !important;
+}
+
+// Role ESS: kolom Search disembunyikan, tombol lipat TETAP tampil.
+// Class `ohrm-role-ess` dipasang di <div id="app"> oleh vue.html.twig.
+.ohrm-role-ess .oxd-main-menu-search {
+  justify-content: flex-end;
+  padding-right: 10px !important;
+
+  .oxd-menu-icon,
+  input.oxd-input {
+    display: none !important;
+  }
+}
+
+// Tombol lipat/buka sidebar: lingkaran hijau berisi panah kiri.
+// Ini tombol bawaan oxd-layout (.oxd-main-menu-button); hanya tampilan yang
+// diubah, fungsinya tetap collapse bawaan sehingga area konten melebar.
+.oxd-main-menu-button {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  flex: 0 0 auto;
+  margin: 0 !important;
+  background-color: #008065 !important;
+  color: #ffffff !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  border-radius: 50% !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+
+  i {
+    color: #ffffff !important;
+    font-size: 16px !important;
+  }
+
+  &:hover {
+    background-color: #006b55 !important;
+  }
+}

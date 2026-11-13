@@ -44,6 +44,9 @@ class DashboardController extends AbstractVueController
             'dashboard_leave_widget',
             'dashboard_time_widget',
             'dashboard_employees_on_leave_today_config',
+            // Widget custom fork: hanya role yang diberi can_read di data group ini
+            // (lihat deploy/sql/dashboard-rf-widget-role.sql → MPP + Admin).
+            'dashboard_resource_fulfillment_widget',
         ];
 
         $permissions = $this->getUserRoleManagerHelper()

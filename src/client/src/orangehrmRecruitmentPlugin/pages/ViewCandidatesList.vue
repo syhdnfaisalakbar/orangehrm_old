@@ -99,21 +99,28 @@
     <br />
     <div class="orangehrm-paper-container">
       <div class="orangehrm-header-container">
-        <oxd-button
+        <!-- Fork ASG: tombol upload Excel ditaruh di pojok kiri -->
+        <upload-candidates-excel
           v-if="$can.create('recruitment_candidates')"
-          :label="$t('general.add')"
-          icon-name="plus"
-          display-type="secondary"
-          @click="onClickAdd"
+          @imported="onCandidatesImported"
         />
-        <!-- Tarik status Task Acumatica untuk semua kandidat di tabel (1 login) -->
-        <oxd-button
-          :label="batchSyncing ? 'Syncing...' : 'Sync Acumatica'"
-          icon-name="cloud-upload"
-          display-type="secondary"
-          :disabled="batchSyncing"
-          @click="onSyncAllAcumatica"
-        />
+        <div style="display: flex; align-items: center; gap: 8px">
+          <oxd-button
+            v-if="$can.create('recruitment_candidates')"
+            :label="$t('general.add')"
+            icon-name="plus"
+            display-type="secondary"
+            @click="onClickAdd"
+          />
+          <!-- Tarik status Task Acumatica untuk semua kandidat di tabel (1 login) -->
+          <oxd-button
+            :label="batchSyncing ? 'Syncing...' : 'Sync Acumatica'"
+            icon-name="cloud-upload"
+            display-type="secondary"
+            :disabled="batchSyncing"
+            @click="onSyncAllAcumatica"
+          />
+        </div>
       </div>
       <table-header
         :total="total"
@@ -197,6 +204,7 @@ import CandidateStatusBadge from '@/orangehrmRecruitmentPlugin/components/Candid
 import AcumaticaTaskStatusCell from '@/orangehrmRecruitmentPlugin/components/AcumaticaTaskStatusCell';
 import AcumaticaTaskStatusDropdown from '@/orangehrmRecruitmentPlugin/components/AcumaticaTaskStatusDropdown';
 import AcumaticaSyncResultDialog from '@/orangehrmRecruitmentPlugin/components/AcumaticaSyncResultDialog';
+import UploadCandidatesExcel from '@/orangehrmRecruitmentPlugin/components/UploadCandidatesExcel';
 
 const defaultFilters = {
   jobTitle: null,
@@ -227,6 +235,7 @@ export default {
     'candidate-status-dropdown': CandidateStatusDropdown,
     'acumatica-sync-result-dialog': AcumaticaSyncResultDialog,
     'acumatica-task-status-dropdown': AcumaticaTaskStatusDropdown,
+    'upload-candidates-excel': UploadCandidatesExcel,
   },
 
   props: {
@@ -325,6 +334,10 @@ export default {
         fromDate: filters.value.fromDate,
         toDate: filters.value.toDate,
         status: filters.value.status?.id,
+        // Default (permintaan Pak): kandidat berstatus Hired TIDAK ditampilkan.
+        // Begitu user memilih status di dropdown (termasuk Hired), backend
+        // mengabaikan flag ini sehingga data Hired muncul saat difilter.
+        hideHired: 1,
         // filter tambahan fork ASG: status Task Acumatica (Open/Processing/Canceled)
         acumaticaTaskStatus: filters.value.acumaticaTaskStatus?.id,
         model: 'list',
@@ -553,6 +566,12 @@ export default {
     },
     onClickAdd() {
       navigate('/recruitment/addCandidate');
+    },
+    // Dipanggil komponen UploadCandidatesExcel setelah import sukses
+    onCandidatesImported() {
+      if (typeof this.execQuery === 'function') {
+        this.execQuery();
+      }
     },
     onClickEdit(item) {
       navigate('/recruitment/addCandidate/{id}', {id: item.id});

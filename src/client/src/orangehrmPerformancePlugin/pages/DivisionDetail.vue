@@ -60,17 +60,13 @@
               label="Search"
               type="submit"
             />
-            <oxd-button
-              class="orangehrm-left-space"
-              display-type="secondary"
-              :label="'Export PDF'"
-              type="button"
-              @click="onClickExportPdf"
-            />
-            <!-- 2026-10-15: tombol "Export Excel" (.xlsx, zero-dep) di sebelah
-                 Export PDF. Warna success (hijau) supaya beda dari Export PDF.
-                 Diexport = SEMUA baris hasil filter (bukan hanya halaman
-                 pagination aktif), isinya mirror tabel + baris total periode. -->
+            <!-- Tombol Export PDF sengaja dihilangkan (permintaan Pak).
+                 Method onClickExportPdf + builder PDF tetap disimpan di file ini
+                 supaya mudah diaktifkan lagi kalau nanti dibutuhkan. -->
+            <!-- Tombol "Export Excel" (.xlsx, zero-dep). Warna success (hijau)
+                 supaya beda dari tombol Search. Diexport = SEMUA baris hasil
+                 filter (bukan hanya halaman pagination aktif), isinya mirror
+                 tabel + baris total periode. -->
             <oxd-button
               class="orangehrm-left-space"
               display-type="success"

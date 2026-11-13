@@ -46,6 +46,8 @@
                 v-model="candidate.vacancyId"
                 :exclude-interviewers="true"
                 :status="true"
+                :rules="rules.vacancy"
+                required
               />
             </oxd-grid-item>
           </oxd-grid>
@@ -226,6 +228,8 @@ export default {
         firstName: [required, shouldNotExceedCharLength(30)],
         lastName: [required, shouldNotExceedCharLength(30)],
         middleName: [shouldNotExceedCharLength(30)],
+        // Fork ASG: Vacancy wajib diisi saat menambah kandidat
+        vacancy: [required],
         email: [required, validEmailFormat, shouldNotExceedCharLength(50)],
         contactNumber: [validPhoneNumberFormat, shouldNotExceedCharLength(25)],
         notes: [shouldNotExceedCharLength(250)],

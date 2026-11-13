@@ -134,6 +134,27 @@ class CandidateInterviewSchedulingAPI extends Endpoint implements CrudEndpoint
                 ->saveCandidateHistory($candidateHistory);
 
             $this->commitTransaction();
+
+            // Fork ASG (permintaan Pak, 2026-11-12): Schedule Interview juga
+            // langsung push ke Acumatica dengan alur yang sama seperti tombol
+            // "Sync Application to Acumatica" (Description Case, Task kandidat,
+            // CV, Note status). Best-effort — gagal push tidak menggagalkan simpan.
+            try {
+                $helper = dirname(__DIR__, 4) . '/web/proxy/_application_push.php';
+                if (is_file($helper)) {
+                    require_once $helper;
+                    if (function_exists('acumaticaPushApplicationLogged')) {
+                        acumaticaPushApplicationLogged(
+                            $candidateId,
+                            (int) $candidateVacancy->getVacancy()->getId(),
+                            'state=interview_scheduled'
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {
+                // best-effort
+            }
+
             return new EndpointResourceResult(
                 CandidateInterviewModel::class,
                 $interview,

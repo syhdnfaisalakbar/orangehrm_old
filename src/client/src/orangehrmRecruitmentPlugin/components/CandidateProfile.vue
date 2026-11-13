@@ -170,11 +170,26 @@
     </div>
 
     <!-- ========== TOMBOL SYNC TO ACUMATICA ========== -->
-    <div style="margin-top: 16px; display: flex; justify-content: flex-end">
+    <div
+      style="
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 12px;
+      "
+    >
+      <span
+        v-if="!acumaticaSyncButtonEnabled"
+        style="font-size: 12px; color: #7b8794"
+      >
+        Sync ke Acumatica otomatis saat aksi status kandidat disimpan
+      </span>
       <oxd-button
         display-type="secondary"
         label="Sync Application to Acumatica"
         icon-name="cloud-upload"
+        :disabled="!acumaticaSyncButtonEnabled"
         @click="syncToAcumatica"
       />
     </div>
@@ -277,6 +292,11 @@ export default {
     return {
       editable: false,
       isLoading: false,
+      // Fork ASG (permintaan Pak, 2026-11-12): tombol Sync Application to Acumatica
+      // dinonaktifkan karena sinkronisasi sudah otomatis saat aksi status kandidat
+      // disimpan (Shortlist, Schedule Interview, Interview Passed/Failed, Job Offer,
+      // Decline Offer). Ubah ke true kalau tombolnya perlu diaktifkan lagi.
+      acumaticaSyncButtonEnabled: false,
       profile: {...CandidateProfileModel},
       vacancy: {...VacancyModel},
       attachment: {...CandidateAttachmentModel},

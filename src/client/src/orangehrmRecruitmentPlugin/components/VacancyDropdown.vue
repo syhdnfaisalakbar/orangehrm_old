@@ -22,8 +22,10 @@
   <oxd-input-field
     v-model="value"
     type="select"
-    :label="$t('recruitment.vacancy')"
+    :label="label || $t('recruitment.vacancy')"
     :options="options"
+    :rules="rules"
+    :required="required"
   />
 </template>
 
@@ -49,6 +51,23 @@ export default {
       type: Boolean,
       required: false,
       default: false,
+    },
+    // Validasi opsional: dikirim dari halaman yang butuh vacancy wajib.
+    rules: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    required: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    // Override label (dipakai CandidateProfile: "Job Vacancy")
+    label: {
+      type: String,
+      required: false,
+      default: null,
     },
   },
   emits: ['update:modelValue'],

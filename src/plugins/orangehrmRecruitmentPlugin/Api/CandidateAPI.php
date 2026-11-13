@@ -79,6 +79,12 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
     // Filter tambahan fork ASG: status Task Acumatica (tabel lokal
     // ohrm_candidate_acumatica_task). Nilai: Open / Processing / Canceled.
     public const FILTER_ACUMATICA_TASK_STATUS = 'acumaticaTaskStatus';
+    // Flag fork ASG: sembunyikan kandidat berstatus HIRED dari daftar secara
+    // default (nilai 1). Diabaikan kalau filter 'status' diisi eksplisit,
+    // supaya memilih status Hired tetap memunculkan datanya.
+    public const FILTER_HIDE_HIRED = 'hideHired';
+    // Status string yang dipakai kolom ohrm_job_candidate_vacancy.status.
+    public const CANDIDATE_STATUS_HIRED = 'HIRED';
 
     public const PARAMETER_FIRST_NAME = 'firstName';
     public const PARAMETER_MIDDLE_NAME = 'middleName';
@@ -172,7 +178,20 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
                 self::FILTER_HIRING_MANAGER_ID
             )
         );
-        $candidateSearchFilterParamHolder->setStatus($this->getStatusFilterParam());
+        $statusFilter = $this->getStatusFilterParam();
+        $candidateSearchFilterParamHolder->setStatus($statusFilter);
+        // Default (permintaan Pak): kandidat HIRED tidak ditampilkan.
+        // Begitu user memilih status di filter, flag ini tidak berlaku — jadi
+        // memilih 'Hired' akan memunculkan kandidat yang hired.
+        $hideHired = $this->getRequestParams()->getIntOrNull(
+            RequestParams::PARAM_TYPE_QUERY,
+            self::FILTER_HIDE_HIRED
+        );
+        $candidateSearchFilterParamHolder->setExcludeStatus(
+            (!is_null($hideHired) && $hideHired > 0 && is_null($statusFilter))
+                ? self::CANDIDATE_STATUS_HIRED
+                : null
+        );
         $candidateSearchFilterParamHolder->setKeywords(
             $this->getRequestParams()->getStringOrNull(
                 RequestParams::PARAM_TYPE_QUERY,
@@ -345,6 +364,14 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
                 new ParamRule(
                     self::FILTER_ACUMATICA_TASK_STATUS,
                     new Rule(Rules::IN, [['Open', 'Processing', 'Completed', 'Canceled']])
+                )
+            ),
+            // Flag fork ASG: sembunyikan kandidat HIRED (0/1). Tanpa rule ini
+            // API menolak request dengan 422 "Invalid Parameter".
+            $this->getValidationDecorator()->notRequiredParamRule(
+                new ParamRule(
+                    self::FILTER_HIDE_HIRED,
+                    new Rule(Rules::ZERO_OR_POSITIVE)
                 )
             ),
             $this->getValidationDecorator()->notRequiredParamRule(
@@ -531,13 +558,17 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
      */
     public function getValidationRuleForCreate(): ParamRuleCollection
     {
-        return new ParamRuleCollection($this->getModelClassParamRule(), ...$this->getCommonBodyValidationRules());
+        return new ParamRuleCollection(
+            $this->getModelClassParamRule(),
+            ...$this->getCommonBodyValidationRules(true)
+        );
     }
 
     /**
+     * @param bool $isCreate true = dipanggil dari create(), vacancyId wajib (fork ASG)
      * @return array
      */
-    private function getCommonBodyValidationRules(): array
+    private function getCommonBodyValidationRules(bool $isCreate = false): array
     {
         return [
             new ParamRule(
@@ -569,12 +600,7 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
                 ),
                 true
             ),
-            $this->getValidationDecorator()->notRequiredParamRule(
-                new ParamRule(
-                    self::PARAMETER_VACANCY_ID,
-                    new Rule(Rules::ENTITY_ID_EXISTS, [Vacancy::class])
-                )
-            ),
+            $this->getVacancyIdParamRule($isCreate),
             $this->getValidationDecorator()->notRequiredParamRule(
                 new ParamRule(
                     self::PARAMETER_KEYWORDS,
@@ -604,6 +630,26 @@ class CandidateAPI extends Endpoint implements CrudEndpoint
                 )
             ),
         ];
+    }
+
+    /**
+     * Fork ASG: vacancyId wajib saat CREATE, tetap opsional saat UPDATE
+     * (record lama bisa tersimpan tanpa vacancy, jangan sampai tidak bisa diedit).
+     *
+     * @param bool $required
+     * @return ParamRule
+     */
+    private function getVacancyIdParamRule(bool $required): ParamRule
+    {
+        $paramRule = new ParamRule(
+            self::PARAMETER_VACANCY_ID,
+            new Rule(Rules::ENTITY_ID_EXISTS, [Vacancy::class])
+        );
+        $validationDecorator = $this->getValidationDecorator();
+
+        return $required
+            ? $validationDecorator->requiredParamRule($paramRule)
+            : $validationDecorator->notRequiredParamRule($paramRule);
     }
 
     /**

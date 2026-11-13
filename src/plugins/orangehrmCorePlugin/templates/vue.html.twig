@@ -21,7 +21,11 @@
     </strong>
   </noscript>
 
-  <div id="app">
+  {# Fork ASG: class khusus role ESS — menyembunyikan kolom Search di sidebar (lihat global.scss) #}
+  <div
+    id="app"
+    class="{{ user is defined and user.userRole is defined and user.userRole|upper == 'ESS' ? 'ohrm-role-ess' : '' }}"
+  >
     <oxd-layout
         home-url="https://www.orangehrm.com/"
         :sidepanel-menu-items="{{ sidePanelMenuItems | json_encode() }}"
