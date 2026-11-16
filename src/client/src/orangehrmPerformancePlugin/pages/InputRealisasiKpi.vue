@@ -214,6 +214,22 @@
               </oxd-grid-item>
             </oxd-grid>
           </oxd-form-row>
+          <!-- Rumus Perhitungan Skor (permintaan Pak): menentukan arah rasio
+               pencapaian yang dipakai menghitung kolom Skor indikator ini. -->
+          <oxd-form-row>
+            <oxd-input-field
+              v-model="addForm.rumus"
+              type="select"
+              :label="'Rumus Perhitungan Skor'"
+              :options="rumusOptions"
+              required
+            />
+          </oxd-form-row>
+          <!-- Validasi bobot (permintaan Pak): total bobot divisi × periode
+               tidak boleh lewat 100%. Teks merah muncul di bawah form. -->
+          <oxd-text v-if="addBobotError" tag="p" class="ohrm-bobot-error">
+            {{ addBobotError }}
+          </oxd-text>
           <oxd-divider />
           <oxd-form-actions class="orangehrm-form-action">
             <required-text />
@@ -766,6 +782,8 @@ export default {
         bobot: null,
         schedule: 1,
         periode: null,
+        // Rumus Perhitungan Skor (opsi objek {id,label}); default opsi pertama.
+        rumus: null,
       },
       rows: [],
       // Halaman aktif tabel (pagination per grup divisi×periode).
@@ -805,6 +823,17 @@ export default {
         : this.divisions.length
         ? this.divisions
         : COMPANY_DIVISIONS;
+    },
+    // Pilihan "Rumus Perhitungan Skor" di modal Add.
+    // Opsi 1: makin tinggi Achievement dibanding Target, makin tinggi Skor.
+    // Opsi 2: kebalikannya (makin rendah pencapaian makin baik, mis. jumlah komplain).
+    // Skor tetap ditampilkan dalam persen 0-100 (keputusan Pak 2026-11-15),
+    // bobot dipakai di baris TOTAL BOBOT (rata-rata berbobot).
+    rumusOptions() {
+      return [
+        {id: 'ach_target', label: '(Achievement/Target)'},
+        {id: 'target_ach', label: '(Target/Achievement)'},
+      ];
     },
     divisionOptions() {
       // label = nama tampilan, code = kode divisi yang disimpan di DB.
@@ -925,6 +954,53 @@ export default {
       );
       return [...forward, ...existing];
     },
+    // Opsi divisi yang sedang dipilih di modal Add (bisa objek atau id/kode/label).
+    addDivisiOption() {
+      const f = this.addForm.division;
+      if (!f) return null;
+      if (typeof f === 'object') return f;
+      return (
+        this.divisionOptions.find((o) => o.id == f) ||
+        this.divisionOptions.find((o) => o.code === f) ||
+        this.divisionOptions.find((o) => o.label === f) ||
+        null
+      );
+    },
+    // Id periode (YYYY-MM) yang dipilih; '' = 'Semua Periode' (tanpa batas).
+    addPeriodeId() {
+      const p = this.addForm.periode;
+      if (!p) return null;
+      const id = typeof p === 'object' ? p.id : p;
+      return id ? String(id) : null;
+    },
+    addPeriodeLabel() {
+      return this.addPeriodeId ? this.formatPeriode(this.addPeriodeId) : '';
+    },
+    // Total bobot yang SUDAH terpakai pada divisi × periode tersebut.
+    // Batas 100% berlaku per divisi × periode (sama seperti baris TOTAL BOBOT
+    // di tabel); cabang tidak memecah batas, jadi semua cabang ikut dihitung.
+    addBobotTerpakai() {
+      const div = this.addDivisiOption;
+      const periode = this.addPeriodeId;
+      if (!div || !div.code || !periode) return 0;
+      return this.rows
+        .filter((r) => r.divisi === div.code && String(r.periode) === periode)
+        .reduce((a, r) => a + (Number(r.bobot) || 0), 0);
+    },
+    // Pesan teks merah di bawah form modal Add. Kosong = valid / belum bisa dihitung.
+    addBobotError() {
+      const input = Number(this.addForm.bobot);
+      if (!this.addForm.bobot || !Number.isFinite(input)) return '';
+      if (!this.addPeriodeId) return '';
+      if (!this.addDivisiOption || !this.addDivisiOption.code) return '';
+      const total = this.addBobotTerpakai + input;
+      if (total <= 100) return '';
+      const fmt = (v) => Math.round(v * 100) / 100;
+      return (
+        `Total bobot pada periode ${this.addPeriodeLabel} ` +
+        `menjadi ${fmt(total)}% — melebihi batas 100%.`
+      );
+    },
     rules() {
       return {
         indikator: [required, shouldNotExceedCharLength(255)],
@@ -1035,6 +1111,8 @@ export default {
     },
   },
   mounted() {
+    // Default "Rumus Perhitungan Skor" = opsi pertama (Achievement / Target).
+    if (!this.addForm.rumus) this.addForm.rumus = this.rumusOptions[0] || null;
     this.fetchData();
   },
   methods: {
@@ -1707,6 +1785,7 @@ export default {
         bobot: null,
         schedule: this.scheduleOptions[0] || null,
         periode: this.addPeriodeOptions[0] || null,
+        rumus: this.rumusOptions[0] || null,
       };
     },
     // Pastikan addForm.periode selalu ada di daftar opsi yang berlaku.
@@ -1735,6 +1814,8 @@ export default {
           ? f.cabang
           : this.locationOptions.find((o) => o.id == f.cabang);
       const per = f.periode && typeof f.periode === 'object' ? f.periode : null;
+      const rumus =
+        f.rumus && typeof f.rumus === 'object' ? f.rumus : this.rumusOptions[0];
       if (!f.indikator || !div || !div.label) {
         this.$toast.error('Indikator dan Divisi wajib diisi.');
         return;
@@ -1749,6 +1830,16 @@ export default {
         this.$toast.error('Target wajib > 0 dan Bobot wajib 0–100.');
         return;
       }
+      // Validasi total bobot divisi × periode (maksimal 100%).
+      // OXD hanya mengenal $toast.error({title, message}); kalau dikirim string,
+      // toast tampil kosong (judul & pesan undefined).
+      if (this.addBobotError) {
+        this.$toast.error({
+          title: 'Bobot melebihi batas',
+          message: this.addBobotError,
+        });
+        return;
+      }
       const body = {
         emp: this.empNumber,
         divisi: this.divisiCode(div),
@@ -1758,7 +1849,10 @@ export default {
         target: Number(f.target),
         bobot: Number(f.bobot),
         schedule: sch ? sch.label : 'Monthly',
-        lower_better: 0,
+        // Opsi "(Target / Pencapaian)" = indikator makin rendah makin baik
+        // -> lower_better 1 (dipakai server & semua halaman utk hitung Skor).
+        lower_better: rumus.id === 'target_ach' ? 1 : 0,
+        rumus: rumus.label,
       };
       try {
         const res = await fetch(
@@ -1966,6 +2060,14 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/* Teks merah validasi total bobot (modal Add Indikator) */
+.ohrm-bobot-error {
+  margin: -0.25rem 0 0.5rem;
+  color: #eb0910;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .orangehrm-header-container {
   display: flex;
   justify-content: flex-start;

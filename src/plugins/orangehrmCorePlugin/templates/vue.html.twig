@@ -21,10 +21,12 @@
     </strong>
   </noscript>
 
-  {# Fork ASG: class khusus role ESS — menyembunyikan kolom Search di sidebar (lihat global.scss) #}
+  {# Fork ASG: class untuk menyembunyikan kolom Search di sidebar (lihat global.scss).
+     Berlaku untuk role ESS dan BOD (permintaan Pak); role lain tetap menampilkan Search. #}
+  {% set hideMenuSearchRoles = ['ESS', 'BOD'] %}
   <div
     id="app"
-    class="{{ user is defined and user.userRole is defined and user.userRole|upper == 'ESS' ? 'ohrm-role-ess' : '' }}"
+    class="{{ user is defined and user.userRole is defined and user.userRole|upper in hideMenuSearchRoles ? 'ohrm-hide-menu-search' : '' }}"
   >
     <oxd-layout
         home-url="https://www.orangehrm.com/"

@@ -147,6 +147,14 @@ di `CandidateSearchFilterParams`). `web/dist` ikut tag, tidak perlu `npm run bui
 
 ## 5. Catatan / risiko
 
+- **Notifikasi Google Chat (baru).** `save_kpi_realisasi.php` mengirim pesan ke space "Notification OrangeHRM"
+  saat ESS klik `Ajukan Verifikasi & Approve`. Butuh `web/proxy/_google_chat.php` (file baru) + kunci
+  `google_chat.webhook_url` di `config.php` server. **URL webhook tidak ikut repo** — isi manual di server:
+  ```php
+  'google_chat' => ['webhook_url' => 'https://chat.googleapis.com/v1/spaces/.../messages?key=...&token=...'],
+  ```
+  Kosong = notifikasi dilewati (fitur lain tetap jalan).
+
 - **`deploy/templates/template_upload_kandidat.xlsx`** = artefak contoh. Template asli dibuat dinamis oleh
   `web/proxy/candidate_import_template.php`, jadi file ini tidak perlu ikut tag (boleh dihapus).
 - **`web/proxy/config.php` tidak ikut git** (kredensial). Di server harus tetap menunjuk Acumatica produksi

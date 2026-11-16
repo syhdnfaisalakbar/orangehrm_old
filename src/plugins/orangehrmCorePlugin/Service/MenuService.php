@@ -114,10 +114,14 @@ class MenuService
      *
      * Permintaan Pak (2026-11-13): role ESS di modul Performance cukup melihat tab
      * Input Realisasi KPI (+ Approval); Configure, Manage Reviews, My Trackers dan
-     * Employee Trackers disembunyikan.
+     * Employee Trackers disembunyikan. Permintaan berikutnya: role BOD diperlakukan
+     * sama di modul yang sama.
      */
     private const ROLE_HIDDEN_TOP_MENU = [
         'ESS' => [
+            'Performance' => ['Configure', 'Manage Reviews', 'My Trackers', 'Employee Trackers'],
+        ],
+        'BOD' => [
             'Performance' => ['Configure', 'Manage Reviews', 'My Trackers', 'Employee Trackers'],
         ],
     ];

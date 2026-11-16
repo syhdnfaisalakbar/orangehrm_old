@@ -124,6 +124,41 @@ try {
             'data'    => ['setup_id' => $setupId, 'divisi' => $divisi],
         ]);
     } else {
+        // Validasi duplikat (permintaan Pak): indikator dianggap kembar HANYA bila
+        // nama sama di divisi + cabang yang sama DAN periodenya sama persis.
+        // '' (kosong) = "Semua Periode". Nama sama dengan periode BERBEDA tetap
+        // diizinkan karena tiap periode boleh punya daftar indikatornya sendiri.
+        $dup = $pdo->prepare(
+            "SELECT id FROM ohrm_kpi_setup
+             WHERE aktif = 1 AND divisi = :divisi
+               AND TRIM(LOWER(indikator)) = TRIM(LOWER(:indikator))
+               AND COALESCE(cabang, '') = :cabang
+               AND COALESCE(periode, '') = :periode
+             LIMIT 1"
+        );
+        $dup->execute([
+            ':divisi'    => $divisi,
+            ':indikator' => $indikator,
+            ':cabang'    => $cabang,
+            ':periode'   => $periode,
+        ]);
+        if ($dup->fetchColumn()) {
+            // Label periode yang enak dibaca: 2026-05 -> "Mei 2026".
+            $bulanId = ['01'=>'Januari','02'=>'Februari','03'=>'Maret','04'=>'April',
+                        '05'=>'Mei','06'=>'Juni','07'=>'Juli','08'=>'Agustus',
+                        '09'=>'September','10'=>'Oktober','11'=>'November','12'=>'Desember'];
+            $labelPeriode = 'semua periode';
+            if ($periode !== '' && preg_match('/^(\d{4})-(\d{2})$/', $periode, $mm)) {
+                $labelPeriode = 'periode ' . ($bulanId[$mm[2]] ?? $mm[2]) . ' ' . $mm[1];
+            }
+            echo json_encode([
+                'status'  => 'error',
+                'message' => 'Indikator "' . $indikator . '" untuk ' . $labelPeriode
+                    . ' sudah ada di divisi ini. Silakan pakai nama lain atau ubah lewat tombol Edit.',
+            ]);
+            exit;
+        }
+
         $ins = $pdo->prepare(
             "INSERT INTO ohrm_kpi_setup
                 (divisi, cabang, periode, indikator, pengukuran, rumus, target, satuan, bobot, schedule, lower_better, aktif, updated_at)

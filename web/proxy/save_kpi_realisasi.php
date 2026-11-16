@@ -195,6 +195,9 @@ try {
     );
 
     $saved = 0;
+    // Baris (divisi + periode) yang benar-benar diajukan — dipakai menyusun
+    // notifikasi Google Chat setelah loop selesai.
+    $chatRows = [];
     $skippedEmpty = 0;
     $skippedJadwal = 0;
     $errors = [];
@@ -265,6 +268,9 @@ try {
             ':input_by' => $emp > 0 ? $emp : null,
         ]);
         $saved++;
+        if ($submitted) {
+            $chatRows[] = ['divisi' => $divisi, 'periode' => $periode];
+        }
         // Catat riwayat perubahan nilai Achievement (lama -> baru). Mencakup juga
         // pengisian pertama (old null). Perubahan == nilai berbeda dari tersimpan.
         if ($oldVal !== $real) {
@@ -299,7 +305,20 @@ try {
     $msg = ($submitted ? 'Diajukan ke verifikasi' : 'Draft disimpan') . " ($saved indikator)";
     if ($submitted && $skippedEmpty > 0) $msg .= ", $skippedEmpty baris kosong dilewati";
     if ($skippedJadwal > 0) $msg .= ", $skippedJadwal baris di luar jadwal penginputan dilewati";
-    if (!empty($errors)) $msg .= ". " . implode(' | ', array_slice($errors, 0, 5));
+    if (!empty($errors)) $msg .= '. ' . implode(' | ', array_slice($errors, 0, 5));
+
+    // Notifikasi Google Chat (space "Notification OrangeHRM") saat pengajuan
+    // verifikasi & approve. Best-effort: kegagalan notifikasi TIDAK menggagalkan
+    // penyimpanan dan tidak mengubah response ke frontend.
+    if ($submitted && !empty($chatRows)) {
+        require_once __DIR__ . '/_google_chat.php';
+        try {
+            google_chat_notify_kpi_submit($pdo, $emp, $chatRows);
+        } catch (Throwable $e) {
+            error_log('[kpi-chat] ' . $e->getMessage());
+        }
+    }
+
     echo json_encode(['status'=>'success','message'=>$msg,'saved'=>$saved,'skippedEmpty'=>$skippedEmpty,'skippedJadwal'=>$skippedJadwal,'errors'=>$errors]);
 } catch (Exception $e) {
     echo json_encode(['status'=>'error','message'=>'Gagal menyimpan: '.$e->getMessage()]);

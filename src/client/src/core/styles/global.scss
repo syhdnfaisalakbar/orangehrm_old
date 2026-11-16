@@ -189,8 +189,9 @@
 }
 
 // Role ESS: kolom Search disembunyikan, tombol lipat TETAP tampil.
-// Class `ohrm-role-ess` dipasang di <div id="app"> oleh vue.html.twig.
-.ohrm-role-ess .oxd-main-menu-search {
+// Class `ohrm-hide-menu-search` dipasang di <div id="app"> oleh vue.html.twig
+// untuk role tertentu (ESS, BOD) supaya kolom Search sidebar disembunyikan.
+.ohrm-hide-menu-search .oxd-main-menu-search {
   justify-content: flex-end;
   padding-right: 10px !important;
 

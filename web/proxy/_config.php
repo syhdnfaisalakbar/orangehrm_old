@@ -62,4 +62,9 @@
     $define('GOOGLE_SSO_CLIENT_SECRET', (string)($gs['client_secret'] ?? ''));
     $define('GOOGLE_SSO_REDIRECT_URI', (string)($gs['redirect_uri'] ?? ''));
     $define('GOOGLE_SSO_ALLOWED_DOMAIN', (string)($gs['allowed_email_domain'] ?? ''));
+
+    // Google Chat incoming webhook (notifikasi pengajuan KPI ke space tertentu).
+    // Kosong = notifikasi dilewati, tidak menggagalkan request.
+    $gchat = (isset($cfg['google_chat']) && is_array($cfg['google_chat'])) ? $cfg['google_chat'] : [];
+    $define('GOOGLE_CHAT_WEBHOOK_URL', (string)($gchat['webhook_url'] ?? ''));
 })();

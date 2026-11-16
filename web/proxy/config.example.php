@@ -52,4 +52,12 @@ return [
         // Sorot email terakhir yang berhasil SSO (login_hint).
         'login_hint_enabled'   => true,
     ],
+
+    // Notifikasi Google Chat (incoming webhook) untuk pengajuan KPI.
+    // Cara dapat URL: buka space Google Chat -> Apps & integrations -> Webhooks
+    // -> Add webhook -> copy URL. URL ini RAHASIA (berisi token), jangan di-commit.
+    // Kosongkan ('') untuk mematikan notifikasi.
+    'google_chat' => [
+        'webhook_url' => 'ISI_WEBHOOK_GOOGLE_CHAT',
+    ],
 ];

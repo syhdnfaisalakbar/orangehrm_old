@@ -125,7 +125,25 @@ try {
                        WHERE er2.setup_id = s.id AND er2.request_status = 'Disetujui') AS edit_approved
          FROM ohrm_kpi_setup s
          WHERE s.divisi = :divisi AND s.aktif = 1
-               AND (s.periode IS NULL OR s.periode = :periode)
+               -- Keputusan Pak (2026-11-16): indikator periode KHUSUS menggantikan
+               -- indikator umum (semua periode) untuk bulan itu. Jadi kalau divisi
+               -- ini punya indikator aktif dengan periode = bulan yang diminta,
+               -- hanya indikator itu yang tampil; kalau tidak ada, dipakai yang umum.
+               AND (
+                     (s.periode = :periode AND :periode <> '')
+                     OR (
+                         s.periode IS NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM ohrm_kpi_setup s2
+                             WHERE s2.divisi = s.divisi AND s2.aktif = 1
+                                   AND s2.periode = :periode2
+                                   AND NOT EXISTS (
+                                       SELECT 1 FROM ohrm_kpi_setup_period_delete pd2
+                                       WHERE pd2.setup_id = s2.id AND pd2.periode = :periode3
+                                   )
+                         )
+                     )
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM ohrm_kpi_setup_period_delete pd
                    WHERE pd.setup_id = s.id AND pd.periode = :periode
@@ -153,7 +171,12 @@ try {
         usort($periodes, function($a, $b) { return strcmp($b, $a); });
 
         foreach ($periodes as $periode) {
-            $stmtSetup->execute([':periode' => $periode, ':divisi' => $dept]);
+            $stmtSetup->execute([
+                ':periode'  => $periode,
+                ':periode2' => $periode,
+                ':periode3' => $periode,
+                ':divisi'   => $dept,
+            ]);
             $setups = $stmtSetup->fetchAll(PDO::FETCH_ASSOC);
             // Muat realisasi semua setup divisi+periode ini
             $realMap = []; // setup_id => cabang => row
