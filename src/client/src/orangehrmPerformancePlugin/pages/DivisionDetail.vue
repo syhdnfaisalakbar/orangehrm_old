@@ -223,80 +223,110 @@
         <oxd-text>Memuat data…</oxd-text>
       </div>
 
-      <div v-else-if="!periodeRows.length" class="orangehrm-dp-empty">
+      <div v-else-if="!yearBlocks.length" class="orangehrm-dp-empty">
         <oxd-text type="subtitle-2">
           Tidak ada data indikator untuk divisi/periode ini.
         </oxd-text>
       </div>
 
-      <div v-else class="orangehrm-table-wrap">
-        <table class="oxd-table-data orangehrm-kpi-table">
-          <thead>
-            <tr>
-              <th style="width: 26%">Indikator</th>
-              <th style="width: 12%">Periode</th>
-              <th style="width: 10%">Cabang</th>
-              <th style="width: 14%">Divisi</th>
-              <th style="width: 14%">Skor</th>
-              <th style="width: 24%">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="g in paginatedPeriodGroups" :key="g.periode">
-              <tr v-for="r in g.rows" :key="`${r.setup_id}-${r.periode}`">
-                <td>
-                  <div class="orangehrm-indikator">{{ r.indikator }}</div>
-                </td>
-                <td class="orangehrm-periode">
-                  {{ formatPeriode(r.periode) }}
-                </td>
-                <td>
-                  <span class="orangehrm-cabang">{{ r.cabang || 'HO' }}</span>
-                </td>
-                <td>
-                  <span class="orangehrm-divisi">{{
-                    divisiName(r.divisi)
-                  }}</span>
-                </td>
-                <td class="orangehrm-num">
-                  <span :class="skorClass(r.skor)">{{
-                    skorDisplayRow(r)
-                  }}</span>
-                </td>
-                <td>
-                  <span :class="statusClass(r.skor)">{{
-                    statusTextFor(r.skor)
-                  }}</span>
-                </td>
-              </tr>
-              <tr class="orangehrm-total-row">
-                <td class="orangehrm-bold">
-                  Total Skor Rata-rata ({{ formatPeriode(g.periode) }})
-                </td>
-                <td class="orangehrm-periode">
-                  {{ formatPeriode(g.periode) }}
-                </td>
-                <td></td>
-                <td></td>
-                <td class="orangehrm-num orangehrm-bold">
-                  <span :class="groupScoreColorClass(g.full)">{{
-                    groupSkorDisplay(g.full)
-                  }}</span>
-                </td>
-                <td>
-                  <span :class="groupBadge(g.full)">{{
-                    groupStatus(g.full)
-                  }}</span>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+      <div v-else class="orangehrm-year-blocks">
         <div
-          v-if="pages > 1"
-          class="orangehrm-bottom-container orangehrm-pagination"
+          v-for="blk in yearBlocks"
+          :key="`blk-${blk.year}`"
+          class="orangehrm-year-block"
         >
-          <oxd-pagination v-model:current="currentPage" :length="pages" />
+          <div class="orangehrm-year-title">Tahun {{ blk.year }}</div>
+          <div class="orangehrm-table-wrap">
+            <table class="oxd-table-data orangehrm-kpi-year">
+              <thead>
+                <tr>
+                  <th style="width: 22%">Indikator</th>
+                  <th>Divisi</th>
+                  <th>Cabang</th>
+                  <th>Target</th>
+                  <th>Bobot</th>
+                  <th>Year</th>
+                  <th>Schedule</th>
+                  <th
+                    v-for="(mb, i) in monthLabels"
+                    :key="`mh-${blk.year}-${i}`"
+                    class="orangehrm-month-head"
+                  >
+                    {{ mb }}
+                  </th>
+                  <th class="orangehrm-month-head">AVG KPI Ach</th>
+                  <th class="orangehrm-month-head">AVG Ach</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="g in blk.groups" :key="g.key">
+                  <tr v-for="y in g.rows" :key="y.key">
+                    <td>
+                      <div class="orangehrm-indikator">{{ y.indikator }}</div>
+                    </td>
+                    <td>
+                      <span class="orangehrm-divisi">{{
+                        divisiName(y.divisi)
+                      }}</span>
+                    </td>
+                    <td>
+                      <span class="orangehrm-cabang">{{
+                        y.cabang || 'HO'
+                      }}</span>
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ y.target }}{{ y.satuan }}
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">{{ y.bobot }}%</td>
+                    <td class="orangehrm-num orangehrm-bold">{{ blk.year }}</td>
+                    <td class="orangehrm-bold">{{ y.schedule }}</td>
+                    <td
+                      v-for="m in 12"
+                      :key="`c-${y.key}-${m}`"
+                      class="orangehrm-num orangehrm-month-cell"
+                    >
+                      <span v-if="cellAch(y, m) !== ''">{{
+                        cellAch(y, m)
+                      }}</span>
+                      <span v-else class="orangehrm-month-empty">—</span>
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ rowAvg(y) }}
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      <span :class="rowAvgAchClass(y)">{{ rowAvgAch(y) }}</span>
+                    </td>
+                  </tr>
+                  <tr class="orangehrm-total-row">
+                    <td class="orangehrm-bold">TOTAL</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ g.bobotTotal }}%
+                    </td>
+                    <td></td>
+                    <td></td>
+                    <td
+                      v-for="m in 12"
+                      :key="`t-${g.key}-${m}`"
+                      class="orangehrm-num orangehrm-bold"
+                    >
+                      {{ groupMonth(g, m) }}
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ groupAvg(g) }}
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      <span :class="groupAvgAchClass(g)">{{
+                        groupAvgAch(g)
+                      }}</span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -427,12 +457,17 @@ export default {
       // tahun terbaru dari baris yang sudah kena filter (divisi+periode).
       const thn = this.selectedTahun?.id ?? this.selectedTahun ?? 'all';
       if (thn !== 'all') return parseInt(String(thn), 10);
+      // Tanpa filter tahun: pakai tahun TERBARU yang benar-benar punya
+      // realisasi pada scope divisi+cabang. Kalau hanya mengambil periode
+      // terbesar, baris jadwal tahun depan (mis. 2027-06 tanpa nilai) membuat
+      // chart 2027 tampil kosong padahal data 2026 ada.
       let tahun = null;
-      this.periodeRows.forEach((r) => {
-        if (r.periode) {
-          const y = parseInt(String(r.periode).slice(0, 4), 10);
-          if (!Number.isNaN(y) && (tahun === null || y > tahun)) tahun = y;
-        }
+      this.achScopeRows.forEach((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-\d{2}$/);
+        if (!m) return;
+        if (String(r.realisasi ?? '').trim() === '') return;
+        const y = parseInt(m[1], 10);
+        if (!Number.isNaN(y) && (tahun === null || y > tahun)) tahun = y;
       });
       return tahun;
     },
@@ -447,23 +482,72 @@ export default {
     // (tiap divisi berbobot sama). SAMA dengan metode Dashboard Divisi, jadi
     // angkanya identik saat filter = Semua Divisi / Semua Tahun / Semua Bulan.
     // (Keputusan Pak 2026-10-07; sebelumnya rata-rata per BARIS + Year-to-Date.)
-    ytdValue() {
-      const perDivisi = new Map();
-      this.periodeRows.forEach((r) => {
-        if (!r.divisi) return;
-        const skor = this.computeScoreOf(r);
-        if (skor === null) return;
-        if (!perDivisi.has(r.divisi))
-          perDivisi.set(r.divisi, {sum: 0, count: 0});
-        const g = perDivisi.get(r.divisi);
-        g.sum += skor;
-        g.count += 1;
+    // Baris yang masuk hitungan gauge/grafik: scope divisi + tahun + cabang.
+    // Filter BULAN ditangani terpisah supaya AVG tetap memakai semua bulan.
+    achScopeRows() {
+      const thn = this.selectedTahun?.id ?? this.selectedTahun ?? 'all';
+      const kab = this.selectedCabang?.id ?? this.selectedCabang ?? 'all';
+      return this.divisiRows.filter((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-\d{2}$/);
+        if (!m) return false;
+        if (thn !== 'all' && m[1] !== String(thn)) return false;
+        if (kab !== 'all' && (r.cabang || 'HO') !== String(kab)) return false;
+        return true;
       });
-      if (!perDivisi.size) return null;
-      const avgPerDivisi = Array.from(perDivisi.values()).map(
-        (g) => g.sum / g.count,
-      );
-      const avg = avgPerDivisi.reduce((a, b) => a + b, 0) / avgPerDivisi.length;
+    },
+    achScopeYears() {
+      const set = new Set();
+      this.achScopeRows.forEach((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-\d{2}$/);
+        if (!m) return;
+        // Hanya tahun yang punya nilai realisasi. Baris jadwal masa depan yang
+        // masih kosong tidak boleh menambah pembagi AVG (kalau ikut, angka
+        // "Semua Tahun" terlihat separuh dari tahun yang berjalan).
+        if (String(r.realisasi ?? '').trim() === '') return;
+        set.add(m[1]);
+      });
+      return Array.from(set).sort();
+    },
+    // Gauge = rata-rata KPI Ach antar divisi (bobot dihitung, sama dengan tabel).
+    //   Bulan = Semua Bulan -> Σ AVG KPI Ach indikator divisi (persis kolom
+    //                         AVG KPI Ach pada baris TOTAL tabel)
+    //   Bulan spesifik      -> Σ KPI Ach indikator bulan itu (persis sel bulan
+    //                         pada baris TOTAL tabel)
+    // Gauge = rata-rata ACHIEVEMENT (permintaan Pak 2026-11-22), satu metrik
+    // dengan chart batang dan sel bulan baris TOTAL tabel: tiap bulan dihitung
+    // rata-rata antar divisi (achievement ÷ target × 100, maks 100, hanya
+    // indikator yang terisi), lalu gauge = rata-rata dari bulan-bulan itu.
+    // Filter Bulan menyempitkan ke satu bulan (nilainya sama dengan satu batang).
+    ytdValue() {
+      const tahun = this.chartTahun;
+      if (tahun === null) return null;
+      const kab = this.selectedCabang?.id ?? this.selectedCabang ?? 'all';
+      const rows = this.divisiRows.filter((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-\d{2}$/);
+        if (!m || parseInt(m[1], 10) !== tahun) return false;
+        if (kab !== 'all' && (r.cabang || 'HO') !== String(kab)) return false;
+        return true;
+      });
+      if (!rows.length) return null;
+      const map = this.achGroupMap(rows);
+      const bln = this.activeBulan;
+      const months =
+        bln === 'all' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [bln];
+      const values = [];
+      months.forEach((m) => {
+        const ym = `${tahun}-${String(m).padStart(2, '0')}`;
+        let sum = 0;
+        let count = 0;
+        map.forEach((g) => {
+          const v = this.divMonthAchAvg(g, ym);
+          if (v === null) return;
+          sum += v;
+          count += 1;
+        });
+        if (count) values.push(sum / count);
+      });
+      if (!values.length) return null;
+      const avg = values.reduce((a, b) => a + b, 0) / values.length;
       return Math.round(avg * 100) / 100;
     },
     // Teks angka gauge: 2 desimal, sama formatnya dengan Dashboard Divisi.
@@ -476,8 +560,8 @@ export default {
         this.tahunLabel === 'Semua Tahun' &&
         this.bulanLabel === 'Semua Bulan'
       )
-        return 'Rata-rata seluruh divisi (semua periode)';
-      return `Rata-rata seluruh divisi (${this.bulanLabel}, ${this.tahunLabel})`;
+        return 'Rata-rata Achievement seluruh divisi (semua periode)';
+      return `Rata-rata Achievement seluruh divisi (${this.bulanLabel}, ${this.tahunLabel})`;
     },
     ytdStatus() {
       return this.ytdValue === null ? null : statusColor(this.ytdValue);
@@ -592,14 +676,124 @@ export default {
     chartTitle() {
       const thn = this.chartTahun;
       const bln = this.activeBulan;
-      if (thn === null) return 'Rata-rata Skor KPI';
+      if (thn === null) return 'Rata-rata Achievement';
       if (bln !== 'all') {
         const ym = `${thn}-${String(bln).padStart(2, '0')}`;
-        return `Rata-rata Skor KPI — ${this.formatPeriode(
+        return `Rata-rata Achievement — ${this.formatPeriode(
           ym,
         )} (rata-rata per divisi)`;
       }
-      return `Rata-rata Skor KPI per Bulan (rata-rata per divisi, ${thn})`;
+      return `Rata-rata Achievement per Bulan (rata-rata per divisi, ${thn})`;
+    },
+    // ==== Tabel gaya tahunan (permintaan Pak 2026-11-19) ====
+    // Kolom & isi mengikuti tabel Input Realisasi KPI (12 kolom bulan + AVG KPI
+    // Ach) tetapi TANPA kolom Aksi. Filter Bulan tidak memengaruhi tabel (hanya
+    // gauge/grafik); filter Tahun menentukan blok tabel yang tampil.
+    monthLabels() {
+      return [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'Mei',
+        'Jun',
+        'Jul',
+        'Agu',
+        'Sep',
+        'Okt',
+        'Nov',
+        'Des',
+      ];
+    },
+    yearBlocks() {
+      const thn = this.selectedTahun?.id ?? this.selectedTahun ?? 'all';
+      const kab = this.selectedCabang?.id ?? this.selectedCabang ?? 'all';
+      const rows = this.divisiRows.filter((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-(\d{2})$/);
+        if (!m) return false;
+        if (thn !== 'all' && m[1] !== String(thn)) return false;
+        if (kab !== 'all' && (r.cabang || 'HO') !== String(kab)) return false;
+        return true;
+      });
+      const byYear = new Map();
+      for (const r of rows) {
+        const year = String(r.periode).slice(0, 4);
+        const mm = parseInt(String(r.periode).slice(5, 7), 10);
+        if (!byYear.has(year)) byYear.set(year, new Map());
+        const byDiv = byYear.get(year);
+        const divKey = r.divisi || '';
+        if (!byDiv.has(divKey)) byDiv.set(divKey, new Map());
+        const byInd = byDiv.get(divKey);
+        // Nama indikator dinormalisasi: buang tanda kutip/spasi liar di ujung.
+        // Data lama sempat tersimpan dengan tanda kutip (mis. `"Employee
+        // Satisfaction ...`), sehingga satu indikator bisa muncul dua kali.
+        const namaInd = this.cleanIndikator(r.indikator);
+        const indKey = `${String(
+          r.cabang || '',
+        ).toLowerCase()}|${namaInd.toLowerCase()}`;
+        if (!byInd.has(indKey)) {
+          byInd.set(indKey, {
+            key: `${year}|${divKey}|${indKey}`,
+            indikator: namaInd,
+            divisi: r.divisi,
+            cabang: r.cabang || '',
+            target: r.target,
+            satuan: r.satuan || '',
+            bobot: r.bobot,
+            schedule: r.schedule,
+            months: {},
+          });
+        }
+        const item = byInd.get(indKey);
+        item.months[mm] = r;
+        // Metadata (Target/Bobot/Schedule) diambil dari setup UMUM (periode
+        // NULL) supaya sama dengan tabel Input Realisasi KPI; setup periode
+        // khusus hanya menyumbang nilai realisasi bulan itu.
+        if (!r.periode) {
+          item.target = r.target;
+          item.bobot = r.bobot;
+          item.schedule = r.schedule;
+          item.satuan = r.satuan || '';
+        }
+      }
+      const out = [];
+      Array.from(byYear.keys())
+        .sort((a, b) => String(b).localeCompare(String(a)))
+        .forEach((year) => {
+          const groups = [];
+          byYear.get(year).forEach((byInd, divKey) => {
+            const list = Array.from(byInd.values());
+            const bobotTotal =
+              Math.round(
+                list.reduce((a, y) => a + (Number(y.bobot) || 0), 0) * 100,
+              ) / 100;
+            groups.push({
+              key: `${year}|${divKey}`,
+              divisi: divKey,
+              bobotTotal,
+              rows: list.sort((a, b) =>
+                String(a.indikator).localeCompare(String(b.indikator)),
+              ),
+            });
+          });
+          groups.sort((a, b) =>
+            this.divisiName(a.divisi).localeCompare(this.divisiName(b.divisi)),
+          );
+          out.push({year, groups});
+        });
+      // Tahun yang belum punya realisasi sama sekali tidak perlu ditampilkan
+      // (mis. 2027 yang baru berisi jadwal) - kecuali dipilih eksplisit di filter.
+      const dipilih = thn !== 'all' ? String(thn) : null;
+      return out.filter((blk) => {
+        if (dipilih && blk.year === dipilih) return true;
+        return blk.groups.some((g) =>
+          g.rows.some((y) =>
+            Object.keys(y.months).some(
+              (m) => this.achValueOf(y, Number(m)) !== null,
+            ),
+          ),
+        );
+      });
     },
     periodeGroups() {
       const map = new Map();
@@ -641,6 +835,11 @@ export default {
       }
       return groups;
     },
+    // Diagram batang: satu batang per bulan = rata-rata antar divisi dari
+    // RATA-RATA ACHIEVEMENT divisi pada bulan itu (permintaan Pak 2026-11-22) —
+    // nilainya sama dengan sel bulan baris TOTAL tabel: tiap indikator
+    // achievement ÷ target × 100 (maks 100), dijumlahkan lalu dibagi jumlah
+    // indikator yang achievement bulan itu terisi.
     chartData() {
       const BULAN_S = [
         'Jan',
@@ -656,38 +855,28 @@ export default {
         'Nov',
         'Des',
       ];
-      if (!this.periodeRows.length) return [];
-      // Tahun data (terpilih atau terbaru dari baris yang sudah difilter)
       const tahun = this.chartTahun;
       if (tahun === null) return [];
-      // Rata-rata PER DIVISI tiap bulan: tiap divisi dirata-rata dulu, lalu
-      // dirata-rata antar divisi — SEJALAN dengan gauge & baris tabel di halaman
-      // ini dan dengan Dashboard Divisi. (Sebelumnya rata-rata per BARIS.)
-      const perBulanDivisi = Array.from({length: 12}, () => new Map());
-      this.periodeRows.forEach((r) => {
-        const mP = String(r.periode || '').match(/^(\d{4})-(\d{2})$/);
-        if (!mP || parseInt(mP[1], 10) !== tahun) return;
-        const m = parseInt(mP[2], 10) - 1;
-        if (m < 0 || m > 11) return;
-        const skor = this.computeScoreOf(r);
-        if (skor === null) return;
-        if (!r.divisi) return;
-        const map = perBulanDivisi[m];
-        if (!map.has(r.divisi)) map.set(r.divisi, {sum: 0, count: 0});
-        const g = map.get(r.divisi);
-        g.sum += skor;
-        g.count += 1;
+      const kab = this.selectedCabang?.id ?? this.selectedCabang ?? 'all';
+      const rows = this.divisiRows.filter((r) => {
+        const m = String(r.periode || '').match(/^(\d{4})-(\d{2})$/);
+        if (!m || parseInt(m[1], 10) !== tahun) return false;
+        if (kab !== 'all' && (r.cabang || 'HO') !== String(kab)) return false;
+        return true;
       });
+      if (!rows.length) return [];
+      const map = this.achGroupMap(rows);
       const bar = (i) => {
-        const map = perBulanDivisi[i];
-        if (!map.size) {
+        const ym = `${tahun}-${String(i + 1).padStart(2, '0')}`;
+        const values = [];
+        map.forEach((g) => {
+          const v = this.divMonthAchAvg(g, ym);
+          if (v !== null) values.push(v);
+        });
+        if (!values.length) {
           return {value: 0, label: BULAN_S[i], color: statusColor(null)};
         }
-        const avgPerDivisi = Array.from(map.values()).map(
-          (g) => g.sum / g.count,
-        );
-        const avg =
-          avgPerDivisi.reduce((a, b) => a + b, 0) / avgPerDivisi.length;
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
         return {
           value: Math.round(avg * 100) / 100,
           label: BULAN_S[i],
@@ -698,7 +887,7 @@ export default {
       const bln = this.activeBulan;
       if (bln !== 'all') return [bar(bln - 1)];
       // Selain itu 12 bulan penuh (bulan kosong tampil 0).
-      return perBulanDivisi.map((_, i) => bar(i));
+      return BULAN_S.map((_, i) => bar(i));
     },
   },
   watch: {
@@ -713,6 +902,287 @@ export default {
     this.fetchData();
   },
   methods: {
+    // ==== Perhitungan KPI Ach (dipakai gauge, grafik, dan tabel) ====
+    achOfCell(cell) {
+      if (!cell) return null;
+      const raw = String(cell.realisasi ?? '').trim();
+      if (raw === '') return null;
+      const n = Number(raw.replace(',', '.'));
+      return Number.isNaN(n) ? null : n;
+    },
+    // Rumus KPI Ach per indikator - sama dengan kpiAchOfPopup() di Input
+    // Realisasi KPI, termasuk aturan khusus Pengendalian Piutang Overdue.
+    kpiAchCalc(indikator, ach, target, bobot) {
+      const t = Number(target);
+      const b = Number(bobot);
+      if (ach === null || !t || Number.isNaN(b)) return null;
+      if (/pengendalian piutang overdue/i.test(String(indikator || ''))) {
+        return ach <= 2 ? b : Math.min(b, (t / ach) * b);
+      }
+      return ach >= t ? b : (ach / t) * b;
+    },
+    // Kelompokkan baris per DIVISI -> indikator (nama + cabang). Bulan disimpan
+    // berkunci 'YYYY-MM' supaya bisa dihitung lintas tahun.
+    achGroupMap(rows) {
+      const map = new Map();
+      rows.forEach((r) => {
+        const divKey = r.divisi || '';
+        if (!map.has(divKey))
+          map.set(divKey, {divisi: divKey, items: new Map()});
+        const g = map.get(divKey);
+        const nama = this.cleanIndikator(r.indikator);
+        const key = `${String(
+          r.cabang || '',
+        ).toLowerCase()}|${nama.toLowerCase()}`;
+        if (!g.items.has(key)) {
+          g.items.set(key, {
+            indikator: nama,
+            cabang: r.cabang || '',
+            target: r.target,
+            bobot: r.bobot,
+            schedule: r.schedule,
+            months: {},
+          });
+        }
+        const item = g.items.get(key);
+        item.months[String(r.periode)] = r;
+        // Metadata diambil dari setup dengan jadwal terpanjang (setup umum),
+        // bukan setup periode khusus yang jadwal/targetnya bisa berbeda.
+        if (
+          this.scheduleMonthsOf(r.schedule).length >
+          this.scheduleMonthsOf(item.schedule).length
+        ) {
+          item.target = r.target;
+          item.bobot = r.bobot;
+          item.schedule = r.schedule;
+        }
+      });
+      return map;
+    },
+    // Σ KPI Ach seluruh indikator divisi pada satu bulan ('YYYY-MM').
+    divAchMonth(g, ym) {
+      let sum = 0;
+      let filled = false;
+      g.items.forEach((item) => {
+        const cell = item.months[ym];
+        if (!cell) return;
+        const v = this.kpiAchCalc(
+          item.indikator,
+          this.achOfCell(cell),
+          item.target,
+          item.bobot,
+        );
+        if (v === null) return;
+        sum += v;
+        filled = true;
+      });
+      return filled ? sum : null;
+    },
+    // Σ AVG KPI Ach indikator divisi (persis kolom AVG KPI Ach baris TOTAL):
+    // tiap indikator = Σ KPI Ach bulan jadwal ÷ jumlah bulan jadwal.
+    divAchAvg(g, years) {
+      const th = years && years.length ? years : [''];
+      let sum = 0;
+      let filled = false;
+      g.items.forEach((item) => {
+        const sched = this.scheduleMonthsOf(item.schedule);
+        const keys = [];
+        th.forEach((y) => {
+          if (!y) return;
+          sched.forEach((m) => keys.push(`${y}-${String(m).padStart(2, '0')}`));
+        });
+        let s = 0;
+        let f = false;
+        keys.forEach((k) => {
+          const cell = item.months[k];
+          if (!cell) return;
+          const v = this.kpiAchCalc(
+            item.indikator,
+            this.achOfCell(cell),
+            item.target,
+            item.bobot,
+          );
+          if (v === null) return;
+          s += v;
+          f = true;
+        });
+        if (!f || !keys.length) return;
+        sum += s / keys.length;
+        filled = true;
+      });
+      return filled ? sum : null;
+    },
+    // Bersihkan nama indikator: buang kutip/spasi di awal & akhir, rapikan spasi.
+    cleanIndikator(v) {
+      return String(v || '')
+        .replace(/^[\s"']+/, '')
+        .replace(/[\s"']+$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    },
+    // Bulan-bulan yang masuk jadwal indikator (dipakai sebagai pembagi AVG).
+    scheduleMonthsOf(schedule) {
+      const s = String(schedule || '').toLowerCase();
+      if (s.startsWith('triwulan') || s.includes('quarter'))
+        return [3, 6, 9, 12];
+      if (s.startsWith('semester')) return [6, 12];
+      if (s.startsWith('annual') || s.startsWith('tahunan')) return [12];
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    },
+    achValueOf(row, m) {
+      const c = row.months[m];
+      if (!c) return null;
+      const raw = String(c.realisasi ?? '').trim();
+      if (raw === '') return null;
+      const n = Number(raw.replace(',', '.'));
+      return Number.isNaN(n) ? null : n;
+    },
+    // Sama dengan kpiAchOfPopup() di Input Realisasi KPI, termasuk aturan khusus
+    // Pengendalian Piutang Overdue (<=2 bobot penuh, >2 (target/ach) x bobot).
+    kpiAchOfRow(row, m) {
+      return this.kpiAchCalc(
+        row.indikator,
+        this.achValueOf(row, m),
+        row.target,
+        row.bobot,
+      );
+    },
+    cellAch(row, m) {
+      const ach = this.achValueOf(row, m);
+      return ach === null ? '' : ach.toFixed(2);
+    },
+    rowAvg(row) {
+      const months = this.scheduleMonthsOf(row.schedule);
+      let sum = 0;
+      let filled = false;
+      for (let m = 1; m <= 12; m += 1) {
+        if (!months.includes(m)) continue;
+        const k = this.kpiAchOfRow(row, m);
+        if (k === null) continue;
+        sum += k;
+        filled = true;
+      }
+      return filled ? `${(sum / months.length).toFixed(2)}%` : '—';
+    },
+    // Sel bulan baris TOTAL — SAMA dengan Input Realisasi KPI (2026-11-20):
+    // rata-rata ACHIEVEMENT semua indikator pada bulan itu
+    // (achievement ÷ target × 100, maks 100) ÷ jumlah indikator yang terisi.
+    groupMonth(g, m) {
+      let sum = 0;
+      let count = 0;
+      for (const y of g.rows) {
+        const v = this.achPctOf(y, m);
+        if (v === null) continue;
+        sum += v;
+        count += 1;
+      }
+      return count ? `${(sum / count).toFixed(2)}%` : '—';
+    },
+    groupAvg(g) {
+      let sum = 0;
+      let filled = false;
+      for (const y of g.rows) {
+        const months = this.scheduleMonthsOf(y.schedule);
+        let s = 0;
+        let f = false;
+        for (let m = 1; m <= 12; m += 1) {
+          if (!months.includes(m)) continue;
+          const k = this.kpiAchOfRow(y, m);
+          if (k === null) continue;
+          s += k;
+          f = true;
+        }
+        if (!f) continue;
+        sum += s / months.length;
+        filled = true;
+      }
+      return filled ? `${sum.toFixed(2)}%` : '—';
+    },
+    // ==== Kolom AVG Ach (sama persis dengan Input Realisasi KPI) ====
+    // Ach bulan = achievement ÷ target × 100, maks 100 (indikator ber-rumus
+    // Target/Achievement dibalik arahnya). AVG Ach indikator = rata-rata hanya
+    // dari bulan jadwal yang TERISI. AVG Ach baris TOTAL = jumlah AVG Ach
+    // indikator ÷ jumlah indikator yang sudah ada nilainya.
+    achPctOf(row, m) {
+      const ach = this.achValueOf(row, m);
+      const cell = row.months ? row.months[m] : null;
+      const target = Number((cell && cell.target) || row.target) || 0;
+      if (ach === null || !target) return null;
+      const lower = cell ? !!cell.lower : !!row.lower;
+      const s = lower ? (target / (ach || 1)) * 100 : (ach / target) * 100;
+      return Math.min(100, s);
+    },
+    // Versi achPctOf untuk item hasil achGroupMap (bulan berkunci 'YYYY-MM'),
+    // dipakai chart batang.
+    achPctOfYm(item, ym) {
+      const cell = item.months ? item.months[ym] : null;
+      if (!cell) return null;
+      const ach = this.achOfCell(cell);
+      const target = Number((cell && cell.target) || item.target) || 0;
+      if (ach === null || !target) return null;
+      const lower = cell ? !!cell.lower : false;
+      const s = lower ? (target / (ach || 1)) * 100 : (ach / target) * 100;
+      return Math.min(100, s);
+    },
+    // Satu divisi, satu bulan: rata-rata achievement indikator yang terisi
+    // (sama dengan sel bulan baris TOTAL tabel untuk divisi itu).
+    divMonthAchAvg(g, ym) {
+      let sum = 0;
+      let count = 0;
+      g.items.forEach((item) => {
+        const v = this.achPctOfYm(item, ym);
+        if (v === null) return;
+        sum += v;
+        count += 1;
+      });
+      return count ? sum / count : null;
+    },
+    rowAvgAchValue(row) {
+      const months = this.scheduleMonthsOf(row.schedule);
+      let sum = 0;
+      let count = 0;
+      for (let m = 1; m <= 12; m += 1) {
+        if (!months.includes(m)) continue;
+        const v = this.achPctOf(row, m);
+        if (v === null) continue;
+        sum += v;
+        count += 1;
+      }
+      return count ? sum / count : null;
+    },
+    rowAvgAch(row) {
+      const v = this.rowAvgAchValue(row);
+      return v === null ? '—' : `${v.toFixed(2)}%`;
+    },
+    rowAvgAchClass(row) {
+      return this.achClassOf(this.rowAvgAchValue(row));
+    },
+    groupAvgAchValue(g) {
+      let sum = 0;
+      let count = 0;
+      for (const y of g.rows) {
+        const v = this.rowAvgAchValue(y);
+        if (v === null) continue;
+        sum += v;
+        count += 1;
+      }
+      return count ? sum / count : null;
+    },
+    groupAvgAch(g) {
+      const v = this.groupAvgAchValue(g);
+      return v === null ? '—' : `${v.toFixed(2)}%`;
+    },
+    groupAvgAchClass(g) {
+      return this.achClassOf(this.groupAvgAchValue(g));
+    },
+    // Warna angka AVG Ach: >=100 biru, >=90 hijau, >=80 kuning, <80 merah.
+    achClassOf(v) {
+      if (v === null || v === undefined) return 'orangehrm-skor-grey';
+      if (v >= 100) return 'orangehrm-skor-blue';
+      if (v >= 90) return 'orangehrm-skor-green';
+      if (v >= 80) return 'orangehrm-skor-yellow';
+      return 'orangehrm-skor-red';
+    },
     // Nama tampilan divisi (nilai DB tetap kode: FNA, PM, SAD, ...).
     divisiName(code) {
       return divisiNameOf(code);
@@ -1353,5 +1823,64 @@ export default {
   display: flex;
   justify-content: flex-end;
   padding: 1rem;
+}
+/* ==== Tabel gaya tahunan (permintaan Pak 2026-11-19) ====
+   12 kolom bulan + AVG KPI Ach, tanpa kolom Aksi. */
+.orangehrm-year-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.orangehrm-year-title {
+  font-family: var(--oxd-interface-font-family, 'Nunito Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: #303030;
+  margin-bottom: 0.4rem;
+}
+.orangehrm-kpi-year {
+  min-width: 1560px;
+  thead th {
+    font-weight: 700;
+    color: #4b5563;
+  }
+  /* Kolom Indikator menempel di kiri saat tabel digeser horizontal. */
+  th:first-child,
+  td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: 1px 0 0 #e4e6ea;
+  }
+  thead th:first-child {
+    z-index: 3;
+  }
+  .orangehrm-total-row td {
+    font-size: 13px !important;
+    border-top: 2px solid #e4e6ea;
+    background: #f3f4f6;
+    color: #303030;
+  }
+  .orangehrm-total-row td:first-child {
+    background: #f3f4f6;
+  }
+}
+.orangehrm-month-head {
+  text-align: center !important;
+  white-space: nowrap;
+}
+.orangehrm-month-cell {
+  padding: 0.6rem 0.5rem !important;
+  text-align: center;
+  white-space: nowrap;
+}
+.orangehrm-month-empty {
+  color: #b7bcc4;
+}
+.orangehrm-divisi,
+.orangehrm-cabang {
+  font-weight: 700;
+  color: #475569;
 }
 </style>

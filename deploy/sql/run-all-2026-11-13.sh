@@ -54,6 +54,13 @@ FILES=(
   supervisor-vacancy-api.sql
   mpp-recruitment-full.sql
   mpp-recruitment-workflow.sql
+  # revisi 2026-11-23: MPP boleh buka & simpan Edit Job Vacancy
+  # (tanpa ini: klik ikon pensil di tab Vacancies -> "Credential Required"/403)
+  mpp-vacancy-edit.sql
+  # revisi 2026-11-23: halaman awal login role MPP = Dashboard
+  mpp-home-page.sql
+  # revisi 2026-11-23: widget Quick Launch disembunyikan untuk role MPP
+  mpp-hide-quick-launch.sql
   # --- recruitment: status Task Acumatica per kandidat ---
   candidate-acumatica-task.sql
   # --- KPI: akses BOD + halaman pertama ESS ---

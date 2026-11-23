@@ -107,27 +107,11 @@ function scheduleInputWindow(string $schedule, string $periode, ?DateTimeImmutab
         ];
     }
 
-    $nowY = (int)$now->format('Y');
-    $nowM = (int)$now->format('n');
-    if ($s === 'annual') {
-        $openAnnual = ($nowY === $tahun && $nowM === 12)
-            || ($nowY === $tahun + 1 && $nowM === 1);
-        if (!$openAnnual) {
-            $next = $tahun + 1;
-            return [
-                'open'   => false,
-                'reason' => "Indikator Annual: periode $periode bisa diisi Desember $tahun - Januari $next",
-            ];
-        }
-        return ['open' => true, 'reason' => ''];
-    }
-
-    if ($nowY !== $tahun || $nowM !== $bulan) {
-        return [
-            'open'   => false,
-            'reason' => "Indikator $schedule: periode $periode hanya bisa diisi pada bulan tersebut",
-        ];
-    }
+    // 2026-11-17: aturan "hanya boleh diisi tepat pada bulan tersebut" dihapus.
+    // Sebelumnya sel (mis. Jun pada indikator Semester) tetap bisa diketik di UI,
+    // tetapi server melewatinya -> angka "hilang" setelah refresh. Sekarang bulan
+    // jadwal boleh diisi kapan saja selama periodenya sudah berjalan (dijaga
+    // aturan umum di atas); periode masa depan tetap ditolak.
     return ['open' => true, 'reason' => ''];
 }
 
@@ -180,6 +164,8 @@ try {
             status    = VALUES(status),
             submitted = GREATEST(submitted, VALUES(submitted)),
             approval_status = IF(VALUES(submitted) = 1, 'Menunggu', approval_status),
+            -- Pengajuan ulang setelah ditolak: alasan penolakan lama dibersihkan.
+            reject_reason = IF(VALUES(submitted) = 1, NULL, reject_reason),
             updated_at = CURRENT_TIMESTAMP"
     );
     $getSetup = $pdo->prepare("SELECT target, lower_better AS `lower`, divisi, cabang, schedule FROM ohrm_kpi_setup WHERE id = ?");

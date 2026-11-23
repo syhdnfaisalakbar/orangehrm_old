@@ -35,7 +35,10 @@
     <oxd-grid-item class="orangehrm-dashboard-widget">
       <my-action-summary-widget></my-action-summary-widget>
     </oxd-grid-item>
-    <oxd-grid-item class="orangehrm-dashboard-widget">
+    <oxd-grid-item
+      v-if="$can.read('dashboard_quick_launch_widget')"
+      class="orangehrm-dashboard-widget"
+    >
       <quick-launch-widget></quick-launch-widget>
     </oxd-grid-item>
     <oxd-grid-item

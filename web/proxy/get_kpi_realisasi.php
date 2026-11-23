@@ -137,6 +137,13 @@ try {
                              SELECT 1 FROM ohrm_kpi_setup s2
                              WHERE s2.divisi = s.divisi AND s2.aktif = 1
                                    AND s2.periode = :periode2
+                                   -- Override PER NAMA INDIKATOR (+ cabang): hanya
+                                   -- indikator yang punya kembaran periode khusus
+                                   -- yang disembunyikan di bulan itu. Indikator
+                                   -- lain tetap tampil (mis. Annual Desember tidak
+                                   -- menghapus indikator Bulanan di bulan Des).
+                                   AND TRIM(LOWER(s2.indikator)) = TRIM(LOWER(s.indikator))
+                                   AND COALESCE(s2.cabang, '') = COALESCE(s.cabang, '')
                                    AND NOT EXISTS (
                                        SELECT 1 FROM ohrm_kpi_setup_period_delete pd2
                                        WHERE pd2.setup_id = s2.id AND pd2.periode = :periode3
@@ -156,9 +163,23 @@ try {
          FROM ohrm_kpi_realisasi WHERE setup_id = :setup_id AND periode = :periode"
     );
 
+    // Tahun yang diminta (?year=YYYY) — kosong = perilaku lama (periode dari data).
+    $reqYear = preg_match('/^\d{4}$/', (string)($_GET['year'] ?? '')) ? (string)$_GET['year'] : '';
+
     foreach ($divisions as $dept) {
-        // Semua periode yang pernah diisi divisi ini (desc) + bulan berjalan
+        // Permintaan Pak (2026-11-17): tabel Input Realisasi KPI tampil per TAHUN
+        // dengan kolom Jan..Des. Kalau ?year=YYYY dikirim, render 12 bulan tahun
+        // itu apa pun kondisi datanya, supaya semua kolom bisa langsung diisi.
         $periodes = [];
+        if ($reqYear !== '') {
+            for ($m = 12; $m >= 1; $m--) {
+                $periodes[] = $reqYear . '-' . str_pad((string)$m, 2, '0', STR_PAD_LEFT);
+            }
+        }
+        if ($reqYear !== '') {
+            // Sudah diisi 12 bulan tahun yang diminta — lewati daftar periode
+            // berbasis data (kalau tidak, bulan lain ikut tampil).
+        } else {
         $st = $pdo->prepare("SELECT DISTINCT periode FROM ohrm_kpi_realisasi WHERE divisi = ? ORDER BY periode DESC");
         $st->execute([$dept]);
         foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $p) $periodes[] = $p;
@@ -169,6 +190,7 @@ try {
         if (!in_array($curYm, $periodes, true)) $periodes[] = $curYm;
         $periodes = array_values(array_unique($periodes));
         usort($periodes, function($a, $b) { return strcmp($b, $a); });
+        }
 
         foreach ($periodes as $periode) {
             $stmtSetup->execute([

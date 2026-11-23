@@ -98,11 +98,42 @@ try {
 // ============================================================
 function mpGetAttrValue(array $attributes, string $attrId)
 {
-    $searchId = strtolower($attrId);
+    // LOOKUP TOLERAN (2026-11-23). AttributeID di Acumatica bisa berubah nama
+    // tanpa pemberitahuan — kasus nyata: TOTPERSON → TOTPERSONN di class
+    // REQFPTK (Customization). Exact-match saja membuat Total Person terbaca
+    // NULL → 0, dan nilai lama di DB ikut ketimpa 0 karena full sync.
+    // Urutan pencarian: exact (case-insensitive, tanpa simbol) → alias → prefix.
+    $norm = static function ($v): string {
+        return strtolower(preg_replace('/[^a-z0-9]/i', '', (string) $v));
+    };
+    $pick = static function (array $a) {
+        return $a['ValueDescription']['value'] ?? $a['Value']['value'] ?? null;
+    };
+    $aliases = ['totperson' => ['totpersonn']];
+
+    $searchId = $norm($attrId);
+
     foreach ($attributes as $a) {
         $id = $a['AttributeID']['value'] ?? null;
-        if ($id !== null && strtolower($id) === $searchId) {
-            return $a['ValueDescription']['value'] ?? $a['Value']['value'] ?? null;
+        if ($id !== null && $norm($id) === $searchId) {
+            return $pick($a);
+        }
+    }
+    foreach ($attributes as $a) {
+        $id = $norm($a['AttributeID']['value'] ?? '');
+        if ($id === '') {
+            continue;
+        }
+        foreach ($aliases[$searchId] ?? [] as $alias) {
+            if ($id === $norm($alias)) {
+                return $pick($a);
+            }
+        }
+    }
+    foreach ($attributes as $a) {
+        $id = $norm($a['AttributeID']['value'] ?? '');
+        if ($id !== '' && strncmp($id, $searchId, strlen($searchId)) === 0) {
+            return $pick($a);
         }
     }
     return null;

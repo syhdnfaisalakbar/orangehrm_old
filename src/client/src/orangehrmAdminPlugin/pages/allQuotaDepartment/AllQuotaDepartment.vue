@@ -55,7 +55,7 @@
         @delete="onClickDeleteSelected"
       ></table-header>
 
-      <!-- Toolbar: Upload Excel (mengganti kuota planned dari Excel) -->
+      <!-- Toolbar: Upload (mengganti kuota planned dari Excel) -->
       <div
         style="
           display: flex;
@@ -73,7 +73,7 @@
         </span>
         <oxd-button
           display-type="secondary"
-          label="Upload Excel"
+          label="Upload"
           icon-name="upload"
           @click="openUploadModal"
         />
@@ -971,11 +971,30 @@ export default {
     },
 
     // Fungsi bantu untuk membaca value attribute TotPerson dari Acumatica
+    // LOOKUP TOLERAN (2026-11-23): AttributeID bisa di-rename di Acumatica
+    // (mis. TOTPERSON -> TOTPERSONN). Urutan: exact -> alias -> prefix.
     getTotPerson(attributes) {
       if (!attributes) return 0;
-      const attr = attributes.find(
-        (a) => a.AttributeID?.value?.toLowerCase() === 'totperson',
+      const norm = (v) =>
+        String(v ?? '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+      const aliases = ['totpersonn'];
+      let attr = attributes.find(
+        (a) => norm(a.AttributeID?.value) === 'totperson',
       );
+      if (!attr) {
+        attr = attributes.find((a) => {
+          const id = norm(a.AttributeID?.value);
+          return id !== '' && aliases.some((al) => norm(al) === id);
+        });
+      }
+      if (!attr) {
+        attr = attributes.find((a) => {
+          const id = norm(a.AttributeID?.value);
+          return id !== '' && id.startsWith('totperson');
+        });
+      }
       return attr ? attr.ValueDescription?.value || attr.Value?.value || 0 : 0;
     },
 

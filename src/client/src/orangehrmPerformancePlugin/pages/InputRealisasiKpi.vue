@@ -59,7 +59,7 @@
       <oxd-table-filter :filter-title="'Filter'">
         <oxd-form @submit-valid="onSearch" @reset="onReset">
           <oxd-form-row>
-            <oxd-grid :cols="isAdmin ? 4 : 3" class="orangehrm-full-width-grid">
+            <oxd-grid :cols="3" class="orangehrm-full-width-grid">
               <oxd-grid-item v-if="isAdmin">
                 <oxd-input-field
                   v-model="filters.division"
@@ -78,20 +78,10 @@
               </oxd-grid-item>
               <oxd-grid-item>
                 <oxd-input-field
-                  v-model="filters.fromDate"
-                  type="date"
-                  label="From Date"
-                  :placeholder="userDateFormat"
-                  :display-format="jsDateFormat"
-                />
-              </oxd-grid-item>
-              <oxd-grid-item>
-                <oxd-input-field
-                  v-model="filters.toDate"
-                  type="date"
-                  label="To Date"
-                  :placeholder="userDateFormat"
-                  :display-format="jsDateFormat"
+                  v-model="filters.year"
+                  type="select"
+                  :label="'Year'"
+                  :options="yearOptions"
                 />
               </oxd-grid-item>
             </oxd-grid>
@@ -379,16 +369,81 @@
         </div>
       </oxd-dialog>
 
+      <oxd-dialog
+        v-if="sumberModal"
+        :style="{width: '90%', maxWidth: '620px'}"
+        @update:show="closeSumber"
+      >
+        <div class="orangehrm-modal-header">
+          <oxd-text type="card-title">Sumber Data</oxd-text>
+        </div>
+        <oxd-text type="subtitle-2">{{ sumberModal.label }}</oxd-text>
+        <oxd-divider />
+        <div v-if="sumberInfo" class="orangehrm-sumber-info">
+          <div class="orangehrm-sumber-row">
+            <span>Indikator</span>
+            <b>{{ sumberInfo.indikator }}</b>
+          </div>
+          <div
+            class="orangehrm-sumber-row orangehrm-sumber-kpi"
+            :class="{'orangehrm-sumber-kpi-max': sumberInfo.capped}"
+          >
+            <span>KPI Ach</span>
+            <b>{{ sumberInfo.kpi }}</b>
+          </div>
+        </div>
+        <oxd-text tag="p" class="orangehrm-sumber-note">
+          KPI Ach = bobot penuh bila Achievement &ge; Target; bila di bawah
+          target = (Achievement &divide; Target) &times; Bobot.
+        </oxd-text>
+        <oxd-divider />
+        <oxd-input-field
+          v-model.trim="sumberModal.bukti"
+          :label="'Link Sumber Data'"
+          :disabled="sumberModal.locked"
+          placeholder="Tempel link (mis. Google Drive)"
+          autocomplete="off"
+        />
+        <oxd-text
+          v-if="sumberModal.locked"
+          tag="p"
+          class="orangehrm-editpending"
+        >
+          Bulan ini sudah diajukan / di luar jadwal — link tidak bisa diubah.
+        </oxd-text>
+        <oxd-divider />
+        <div class="orangehrm-form-action">
+          <oxd-button
+            display-type="ghost"
+            label="Batal"
+            type="button"
+            @click="closeSumber"
+          />
+          <oxd-button
+            display-type="secondary"
+            label="Simpan"
+            type="button"
+            :disabled="sumberModal.locked"
+            :loading="sumberSaving"
+            @click="saveSumber"
+          />
+        </div>
+      </oxd-dialog>
+
       <oxd-form :loading="isLoading" @submit-valid="onSubmit">
         <div
-          v-if="rows.length && filteredGroups.length"
+          v-if="rows.length && yearRows.length"
           class="orangehrm-kpi-section"
         >
           <div class="orangehrm-kpi-summary">
             <oxd-text type="subtitle-2">
-              {{ filteredRowCount }} baris indikator •
-              {{ filteredGroups.length }} grup
+              {{ yearRows.length }} indikator • {{ yearGroups.length }} divisi •
+              tahun {{ applied.year }}
             </oxd-text>
+            <span class="orangehrm-sumber-hint">
+              Klik ikon &#128279; di dalam sel bulan untuk mengisi link Sumber
+              Data bulan tersebut.
+            </span>
             <span
               v-if="!isAdmin && currentDivision"
               class="orangehrm-scope-tag"
@@ -398,209 +453,196 @@
           </div>
 
           <div class="orangehrm-table-wrap">
-            <table class="oxd-table-data orangehrm-kpi-table">
+            <table
+              class="oxd-table-data orangehrm-kpi-table orangehrm-kpi-year"
+            >
               <thead>
                 <tr>
-                  <th style="width: 4%" class="orangehrm-delete-cell"></th>
-                  <th style="width: 20%">Indikator</th>
-                  <th style="width: 10%">Divisi</th>
-                  <th style="width: 12%">Periode</th>
-                  <th style="width: 9%">Cabang</th>
-                  <th style="width: 6%">Bobot</th>
-                  <th style="width: 7%">Target</th>
+                  <th
+                    style="width: 3%"
+                    class="orangehrm-delete-cell orangehrm-delete-head"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="allYearsMarked"
+                      :disabled="!deletableYears.length"
+                      :indeterminate.prop="someYearsMarked && !allYearsMarked"
+                      :title="
+                        allYearsMarked
+                          ? 'Batalkan pilih semua indikator'
+                          : 'Pilih semua indikator yang bisa dihapus'
+                      "
+                      @change="toggleDeleteAll"
+                    />
+                  </th>
+                  <th style="width: 18%">Indikator</th>
+                  <th style="width: 9%">Divisi</th>
+                  <th style="width: 7%">Cabang</th>
+                  <th style="width: 6%">Target</th>
+                  <th style="width: 5%">Bobot</th>
+                  <th style="width: 5%">Year</th>
                   <th style="width: 7%">Schedule</th>
-                  <th style="width: 7%">Achievement</th>
-                  <th style="width: 7%">Skor</th>
-                  <th style="width: 9%">Status</th>
-                  <th style="width: 16%">Sumber Data</th>
-                  <th style="width: 7%">Aksi</th>
+                  <th
+                    v-for="m in 12"
+                    :key="'mh' + m"
+                    class="orangehrm-month-head"
+                  >
+                    {{ monthShort[m - 1] }}
+                  </th>
+                  <th style="width: 8%">AVG KPI Ach</th>
+                  <th style="width: 7%">AVG Ach</th>
+                  <th style="width: 8%">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                <template v-for="g in paginatedGroups" :key="g.key">
-                  <tr
-                    v-for="r in g.rows"
-                    :key="`${r.divisi}-${r.periode}-${r.setup_id}`"
-                  >
+                <template v-for="g in yearGroups" :key="g.key">
+                  <tr v-for="y in g.rows" :key="y.key">
                     <td class="orangehrm-delete-cell">
                       <input
                         type="checkbox"
                         class="oxd-input"
-                        :checked="
-                          isRowDeletable(r) && deletedKeys.includes(rowKey(r))
-                        "
-                        :disabled="!isRowDeletable(r)"
+                        :checked="yearMarked(y)"
+                        :disabled="!yearDeletable(y)"
                         :title="
-                          locked(r)
-                            ? 'Tidak bisa dihapus (periode ini sudah diajukan)'
-                            : setupHasPendingEdit(r.setup_id)
-                            ? 'Tidak bisa dihapus (menunggu approval edit)'
-                            : hasScore(r)
-                            ? 'Tidak bisa dihapus (indikator sudah terisi skor)'
-                            : 'Tandai untuk hapus'
+                          yearDeletable(y)
+                            ? 'Tandai untuk hapus (indikator ini di semua bulan)'
+                            : 'Tidak bisa dihapus (sudah ada nilai/pengajuan)'
                         "
-                        @change="toggleDelete(r)"
+                        @change="toggleDeleteYear(y)"
                       />
                     </td>
                     <td>
-                      <div class="orangehrm-indikator">{{ r.indikator }}</div>
+                      <div class="orangehrm-indikator">{{ y.indikator }}</div>
                     </td>
                     <td>
                       <span class="orangehrm-divisi">{{
-                        divisiName(r.divisi)
+                        divisiName(y.divisi)
                       }}</span>
-                    </td>
-                    <td class="orangehrm-periode">
-                      {{ formatPeriode(r.periode) }}
                     </td>
                     <td>
                       <span class="orangehrm-cabang">{{
-                        r.cabang || 'HO'
+                        y.cabang || 'HO'
                       }}</span>
                     </td>
-                    <td class="orangehrm-num">{{ rowBobot(r) }}%</td>
-                    <td class="orangehrm-num">
-                      {{ rowTarget(r) }}{{ r.satuan }}
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ yTarget(y) }}{{ y.satuan }}
                     </td>
-                    <td>{{ rowSchedule(r) }}</td>
-                    <td class="orangehrm-num">
-                      <input
-                        v-model.number="r.realisasi"
-                        class="oxd-input orangehrm-real"
-                        type="number"
-                        step="0.1"
-                        placeholder="—"
-                        :disabled="inputLocked(r)"
-                        :title="inputLockHint(r)"
-                      />
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ yBobot(y) }}%
                     </td>
-                    <td class="orangehrm-num">
-                      <span :class="scoreColorClass(r)">{{
-                        displayScore(r)
-                      }}</span>
+                    <td class="orangehrm-num orangehrm-bold">
+                      {{ applied.year }}
                     </td>
-                    <td>
-                      <span :class="badgeClass(r)">{{ statusLabel(r) }}</span>
-                    </td>
-                    <td>
-                      <div class="orangehrm-sumber">
+                    <td class="orangehrm-bold">{{ ySchedule(y) }}</td>
+                    <td
+                      v-for="m in 12"
+                      :key="'mc' + m + y.key"
+                      class="orangehrm-num orangehrm-month-cell"
+                    >
+                      <template v-if="cellOf(y, m)">
                         <input
-                          v-model="r.bukti"
-                          class="oxd-input orangehrm-sumber-input"
-                          placeholder="Tempel link Sumber Data"
+                          class="oxd-input orangehrm-real"
+                          type="text"
+                          inputmode="decimal"
                           autocomplete="off"
-                          :disabled="inputLocked(r)"
-                          :title="inputLockHint(r)"
+                          :value="
+                            y.months[m].realisasi === null ||
+                            y.months[m].realisasi === undefined
+                              ? ''
+                              : y.months[m].realisasi
+                          "
+                          placeholder="—"
+                          :disabled="cellLocked(y, m)"
+                          :title="cellLockHint(y, m)"
+                          @input="onAchInput(y, m, $event)"
+                          @blur="onAchBlur(y, m, $event)"
                         />
-                        <a
-                          v-if="r.bukti"
-                          :href="r.bukti"
-                          target="_blank"
-                          rel="noopener"
-                          class="orangehrm-sumber-link"
-                          >Buka</a
+                        <button
+                          type="button"
+                          class="orangehrm-sumber-btn"
+                          :class="{
+                            'orangehrm-sumber-filled': !!y.months[m].bukti,
+                          }"
+                          :title="
+                            y.months[m].bukti
+                              ? 'Sumber Data: ' + y.months[m].bukti
+                              : 'Tempel link Sumber Data'
+                          "
+                          @click="openSumber(y, m)"
                         >
-                      </div>
+                          <i class="oxd-icon bi-link-45deg"></i>
+                        </button>
+                      </template>
+                      <span v-else class="orangehrm-month-empty">—</span>
                     </td>
-                    <td>
-                      <template v-if="pendingEdit(r)">
-                        <span class="orangehrm-editpending"
-                          >⏳ Menunggu Disetujui</span
-                        >
-                      </template>
-                      <template v-else-if="setupHasDraft(r.setup_id)">
-                        <span class="orangehrm-editdraft">Belum Diajukan</span>
-                        <oxd-icon-button
-                          class="orangehrm-edit"
-                          :with-container="false"
-                          name="pencil-fill"
-                          :title="'Edit (update draft)'"
-                          @click="openEdit(r)"
-                        />
-                      </template>
-                      <template v-else-if="editApproved(r)">
-                        <span class="orangehrm-editapproved"
-                          >✓ Perubahan Disetujui</span
-                        >
-                        <oxd-icon-button
-                          class="orangehrm-edit"
-                          :with-container="false"
-                          name="pencil-fill"
-                          :title="'Edit'"
-                          @click="openEdit(r)"
-                        />
-                      </template>
+                    <td class="orangehrm-num orangehrm-bold">
+                      <span>{{ yScoreDisplay(y) }}</span>
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      <span :class="yAvgAchClass(y)">{{
+                        yAvgAchDisplay(y)
+                      }}</span>
+                    </td>
+                    <td class="orangehrm-aksi-cell">
+                      <span
+                        v-if="pendingEdit(y.ref)"
+                        class="orangehrm-editpending"
+                        >&#9203; Menunggu</span
+                      >
                       <oxd-icon-button
                         v-else
                         class="orangehrm-edit"
                         :with-container="false"
                         name="pencil-fill"
                         :title="'Edit'"
-                        @click="openEdit(r)"
+                        @click="openEdit(y.ref)"
                       />
-                      <!-- History Achievement: ikon jam utk baris yang sudah terisi nilai -->
                       <oxd-icon-button
-                        v-if="hasScore(r)"
+                        v-if="yearHasValue(y)"
                         class="orangehrm-hist"
                         :with-container="false"
                         name="clock-fill"
                         :title="'History Achievement'"
-                        @click="openHistory(r)"
+                        @click="openHistoryYear(y)"
                       />
                     </td>
                   </tr>
                   <tr class="orangehrm-total-row">
                     <td></td>
-                    <td class="orangehrm-bold">TOTAL BOBOT</td>
+                    <td class="orangehrm-bold">TOTAL</td>
                     <td></td>
                     <td></td>
                     <td></td>
                     <td class="orangehrm-num orangehrm-bold">
-                      {{ groupBobot(g) }}%
+                      {{ yGroupBobot(g) }}%
                     </td>
-                    <td colspan="3"></td>
+                    <td></td>
+                    <td></td>
+                    <td
+                      v-for="m in 12"
+                      :key="`gt-${m}`"
+                      class="orangehrm-num orangehrm-bold orangehrm-total-month"
+                    >
+                      {{ yGroupMonthDisplay(g, m) }}
+                    </td>
                     <td class="orangehrm-num orangehrm-bold">
-                      <span :class="groupScoreColorClass(g)">{{
-                        groupSkorDisplay(g)
+                      <span>{{ yGroupScoreDisplay(g) }}</span>
+                    </td>
+                    <td class="orangehrm-num orangehrm-bold">
+                      <span :class="yGroupAvgAchClass(g)">{{
+                        yGroupAvgAchDisplay(g)
                       }}</span>
                     </td>
-                    <td>
-                      <span :class="groupBadge(g)">{{ groupStatus(g) }}</span>
-                    </td>
-                    <td colspan="2"></td>
+                    <td></td>
                   </tr>
                 </template>
               </tbody>
             </table>
           </div>
-          <!-- Pagination PER PERIODE (permintaan Pak, 2026-11-13): satu halaman =
-               satu periode, geser dgn tombol kanan/kiri. -->
-          <div
-            v-if="pages > 1"
-            class="orangehrm-bottom-container orangehrm-pagination"
-          >
-            <oxd-icon-button
-              name="chevron-left"
-              :with-container="true"
-              :disabled="currentPage <= 1"
-              title="Periode sebelumnya"
-              @click="prevPeriode"
-            />
-            <span class="orangehrm-pagination-label">
-              {{ currentPeriodeLabel }}
-            </span>
-            <oxd-icon-button
-              name="chevron-right"
-              :with-container="true"
-              :disabled="currentPage >= pages"
-              title="Periode berikutnya"
-              @click="nextPeriode"
-            />
-          </div>
         </div>
 
         <div
-          v-else-if="rows.length && !filteredGroups.length"
+          v-else-if="rows.length && !yearRows.length"
           class="orangehrm-empty-filter"
         >
           <oxd-text type="subtitle-2">
@@ -608,18 +650,19 @@
           </oxd-text>
         </div>
 
-        <oxd-divider v-if="filteredGroups.length" />
+        <oxd-divider v-if="yearRows.length" />
 
-        <oxd-form-actions v-if="filteredGroups.length">
+        <oxd-form-actions v-if="yearRows.length">
           <required-text />
           <oxd-button
+            class="orangehrm-btn-kuning"
             display-type="warning"
             :label="'Simpan'"
             type="button"
             @click="saveDraft"
           />
           <oxd-button
-            class="orangehrm-left-space"
+            class="orangehrm-left-space orangehrm-btn-kuning"
             display-type="warning"
             :label="'Ajukan Verifikasi & Approve'"
             type="submit"
@@ -671,8 +714,21 @@ const MONTH_NAMES = [
   'Desember',
 ];
 
-// Nilai mentah sebuah sel {v, s} — style tidak dipakai di file CSV.
-const csvCellValue = (cell) => (cell && cell.v !== undefined ? cell.v : '');
+// Nama bulan pendek untuk header kolom tabel per tahun.
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Mei',
+  'Jun',
+  'Jul',
+  'Agu',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Des',
+];
 
 // Unduh CSV tanpa dependency. Kutip/koma/baris baru di-escape, dan BOM UTF-8
 // ditambahkan supaya Excel (Windows) membaca huruf non-ASCII dengan benar.
@@ -700,16 +756,16 @@ const downloadCsv = (fileName, matrix) => {
 const EXPORT_COLUMNS = [
   {title: 'Indikator', width: 38},
   {title: 'Divisi', width: 16},
-  {title: 'Periode', width: 16},
   {title: 'Cabang', width: 14},
-  {title: 'Bobot (%)', width: 10},
   {title: 'Target', width: 12},
   {title: 'Satuan', width: 10},
+  {title: 'Bobot (%)', width: 10},
+  {title: 'Year', width: 8},
   {title: 'Schedule', width: 12},
-  {title: 'Achievement', width: 13},
-  {title: 'Skor (%)', width: 10},
+  ...MONTH_SHORT.map((m) => ({title: m, width: 9})),
+  {title: 'AVG KPI Ach (%)', width: 10},
+  {title: 'AVG Ach (%)', width: 10},
   {title: 'Status', width: 24},
-  {title: 'Sumber Data', width: 40},
 ];
 
 // Daftar divisi korporat ASG — dipakai sebagai pilihan dropdown Divisi di modal Add.
@@ -802,18 +858,27 @@ export default {
       pendingEdits: [],
       // Filter Search (frontend-only): 'filters' = nilai dropdown (draft),
       // 'applied' = snapshot saat tombol Search diklik (dipakai menampilkan).
+      // Sejak 2026-11-17 tabel tampil per TAHUN (kolom Jan..Des), jadi filter
+      // rentang tanggal diganti dropdown Year (default tahun berjalan).
       filters: {
         division: {id: 0, label: 'Semua'},
         cabang: {id: 0, label: 'Semua'},
-        fromDate: '',
-        toDate: '',
+        year: {
+          id: String(new Date().getFullYear()),
+          label: String(new Date().getFullYear()),
+        },
       },
       applied: {
         division: {id: 0, label: 'Semua'},
         cabang: {id: 0, label: 'Semua'},
-        fromDate: '',
-        toDate: '',
+        year: String(new Date().getFullYear()),
       },
+      // Bulan yang diajukan (objek {id,label}) — approval tetap PER BULAN.
+      // Modal Sumber Data per sel bulan: {key, label, bukti, locked}.
+      sumberModal: null,
+      sumberSaving: false,
+      // Nama bulan pendek untuk header kolom Jan..Des.
+      monthShort: MONTH_SHORT,
     };
   },
   computed: {
@@ -1033,14 +1098,9 @@ export default {
         this.applied.cabang && this.applied.cabang.label !== 'Semua'
           ? this.applied.cabang.label
           : null;
-      // Filter rentang bulan inklusif: From Date -> To Date (data periode = YYYY-MM)
-      let fromYm = null;
-      let toYm = null;
-      if (this.applied.fromDate)
-        fromYm = String(this.applied.fromDate).slice(0, 7);
-      if (this.applied.toDate) toYm = String(this.applied.toDate).slice(0, 7);
-      if (fromYm && toYm && fromYm > toYm) [fromYm, toYm] = [toYm, fromYm];
-      if (!div && !cab && !fromYm && !toYm) return this.groups;
+      // Filter TAHUN (YYYY) — menggantikan From/To Date sejak 2026-11-17.
+      const year = this.applied.year ? String(this.applied.year) : '';
+      if (!div && !cab && !year) return this.groups;
       const map = new Map();
       for (const r of this.rows) {
         if (div && r.divisi !== div) continue;
@@ -1048,8 +1108,7 @@ export default {
           const isPusat = cab === 'HO';
           if (isPusat ? (r.cabang || '') !== '' : r.cabang !== cab) continue;
         }
-        if (fromYm && r.periode < fromYm) continue;
-        if (toYm && r.periode > toYm) continue;
+        if (year && String(r.periode).slice(0, 4) !== year) continue;
         const key = `${r.divisi}||${r.periode}`;
         if (!map.has(key)) {
           map.set(key, {
@@ -1063,8 +1122,122 @@ export default {
       }
       return Array.from(map.values());
     },
+    // Bulan berjalan (YYYY-MM) — bulan yang belum berjalan tidak bisa diisi
+    // (aturan server save_kpi_realisasi; Admin dikecualikan).
+    currentYm() {
+      const n = new Date();
+      return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+    },
+    // Data yang ditampilkan di modal Sumber Data: indikator + KPI Achievement
+    // bulan itu (otomatis dari achievement, target, dan bobot).
+    sumberInfo() {
+      const s = this.sumberModal;
+      if (!s) return null;
+      const y = this.yearRows.find((r) => r.key === s.yKey);
+      if (!y) return null;
+      const target = this.yTarget(y);
+      const bobot = this.yBobot(y);
+      const ach = this.achNumOf(y, s.m);
+      const kpi = this.kpiAchOfPopup(y, s.m);
+      const satuan = y.satuan || '';
+      const num = (v, unit = '') =>
+        v === null || v === undefined || v === ''
+          ? '—'
+          : `${Math.round(Number(v) * 100) / 100}${unit}`;
+      const pct =
+        ach !== null && Number(target) ? (ach / Number(target)) * 100 : null;
+      return {
+        indikator: y.indikator,
+        divisi: y.divisi,
+        cabang: y.cabang || '-',
+        bulan: `${MONTH_NAMES[s.m - 1]} ${this.applied.year}`,
+        target: num(target, satuan ? ` ${satuan}` : ''),
+        bobot: num(bobot, '%'),
+        ach: num(ach, satuan ? ` ${satuan}` : ''),
+        achPct: pct === null ? '—' : `${Math.round(pct * 100) / 100}%`,
+        // Satuan % ditambahkan (permintaan Pak 2026-11-19): angka KPI Ach di popup
+        // Sumber Data tampil sebagai "30%", bukan "30".
+        kpi: num(kpi, '%'),
+        // Sorotan "KPI Ach maksimal" dihitung dari hasil akhirnya, bukan dari
+        // achievement >= target, supaya indikator lower-is-better (mis.
+        // Pengendalian Piutang Overdue) tidak ikut tersorot saat angkanya besar.
+        capped:
+          kpi !== null && bobot !== null && bobot !== undefined
+            ? Number(kpi) >= Number(bobot)
+            : false,
+      };
+    },
     filteredRowCount() {
       return this.filteredGroups.reduce((a, g) => a + g.rows.length, 0);
+    },
+    // Pilihan tahun: tahun berjalan ±1 + tahun yang ada di data.
+    yearOptions() {
+      const now = new Date().getFullYear();
+      const set = new Set([String(now - 1), String(now), String(now + 1)]);
+      for (const r of this.rows) {
+        if (r.periode) set.add(String(r.periode).slice(0, 4));
+      }
+      return Array.from(set)
+        .sort()
+        .reverse()
+        .map((y) => ({id: y, label: y}));
+    },
+    // Baris tabel versi TAHUN: satu baris = satu indikator × cabang, dengan
+    // 12 sel bulan (Jan..Des). Sel kosong = belum ada baris DB utk bulan itu,
+    // tapi tetap bisa diisi karena save proxy melakukan upsert.
+    yearRows() {
+      // Satu baris = satu NAMA indikator × cabang (bukan per setup_id): setup
+      // umum (semua periode) dan setup periode khusus untuk indikator yang sama
+      // DIGABUNG jadi satu baris, sehingga sel Desember diisi setup khusus dan
+      // bulan lainnya oleh setup umum — tidak muncul dua baris kembar.
+      const map = new Map();
+      for (const g of this.filteredGroups) {
+        for (const r of g.rows) {
+          const key = `${r.divisi}||${r.cabang || ''}||${String(
+            r.indikator,
+          ).toLowerCase()}`;
+          let y = map.get(key);
+          if (!y) {
+            y = {
+              key,
+              divisi: r.divisi,
+              cabang: r.cabang || '',
+              setup_id: r.setup_id,
+              indikator: r.indikator,
+              satuan: r.satuan || '',
+              ref: r,
+              months: {},
+            };
+            map.set(key, y);
+          }
+          const m = Number(String(r.periode).slice(5, 7));
+          if (m < 1 || m > 12) continue;
+          const prev = y.months[m];
+          // Utamakan baris dari setup PERIODE KHUSUS (periode tidak kosong) —
+          // itulah definisi yang berlaku untuk bulan tersebut.
+          if (!prev) {
+            y.months[m] = r;
+          }
+          y.setupIds = y.setupIds || new Set();
+          y.setupIds.add(r.setup_id);
+        }
+      }
+      return Array.from(map.values());
+    },
+    // Grup per DIVISI (baris TOTAL BOBOT mengikuti divisi, bukan periode).
+    yearGroups() {
+      const map = new Map();
+      for (const y of this.yearRows) {
+        if (!map.has(y.divisi)) {
+          map.set(y.divisi, {
+            key: `div-${y.divisi}`,
+            divisi: y.divisi,
+            rows: [],
+          });
+        }
+        map.get(y.divisi).rows.push(y);
+      }
+      return Array.from(map.values());
     },
     // Daftar periode yang ada datanya (unik, terbaru di atas) — satu periode
     // menjadi satu halaman tabel.
@@ -1095,6 +1268,19 @@ export default {
       const periode = this.currentPeriode;
       if (!periode) return [];
       return this.filteredGroups.filter((g) => g.periode === periode);
+    },
+    // --- "Pilih semua" di header tabel (permintaan Pak 2026-11-18) ---
+    // Hanya baris yang boleh dihapus yang ikut tercentang; baris yang sudah
+    // punya nilai/pengajuan tetap dilewati supaya server tidak menolak.
+    deletableYears() {
+      return this.yearRows.filter((y) => this.yearDeletable(y));
+    },
+    allYearsMarked() {
+      const list = this.deletableYears;
+      return list.length > 0 && list.every((y) => this.yearMarked(y));
+    },
+    someYearsMarked() {
+      return this.yearRows.some((y) => this.yearMarked(y));
     },
   },
   watch: {
@@ -1329,6 +1515,477 @@ export default {
       const d = this.draftOf(r);
       return d ? d.schedule : r.schedule;
     },
+
+    // ===== Tabel per TAHUN (permintaan Pak, 2026-11-17) =====
+    // Satu baris = satu indikator × cabang, dengan 12 sel bulan.
+    skorClassOf(score) {
+      const map = {
+        'status-blue': 'orangehrm-skor-blue',
+        'status-green': 'orangehrm-skor-green',
+        'status-yellow': 'orangehrm-skor-yellow',
+        'status-red': 'orangehrm-skor-red',
+        'status-grey': 'orangehrm-skor-grey',
+      };
+      return map[statusColor(score)] || 'orangehrm-skor-grey';
+    },
+    cellOf(y, m) {
+      return y.months[m] || null;
+    },
+    // Angka achievement sebuah sel (null kalau kosong / bukan angka).
+    // Nilai Achievement selalu tampil 2 desimal (7.40) agar konsisten saat
+    // diisi maupun setelah dimuat dari server.
+    fmtAch(v) {
+      if (v === null || v === undefined || String(v).trim() === '') return '';
+      const n = Number(String(v).replace(',', '.'));
+      if (Number.isNaN(n)) return String(v);
+      // 2 desimal HANYA kalau tidak menghilangkan presisi. Angka kecil (mis.
+      // Stock Opname 0.002 dengan target 0.025) harus tetap 0.002 — kalau
+      // dipaksa 0.00 nilainya hilang dan skornya jadi salah.
+      const r2 = Math.round(n * 100) / 100;
+      return Math.abs(n - r2) < 1e-9 ? r2.toFixed(2) : String(n);
+    },
+    // Hanya izinkan angka + satu titik desimal, maksimal 2 desimal.
+    onAchInput(y, m, ev) {
+      let v = String(ev.target.value).replace(',', '.');
+      v = v.replace(/[^0-9.]/g, '');
+      const parts = v.split('.');
+      if (parts.length > 2) v = `${parts[0]}.${parts.slice(1).join('')}`;
+      if (v.includes('.')) {
+        const [a, b] = v.split('.');
+        // Maksimal 6 desimal: cukup untuk angka kecil (0.002) tanpa memotong
+        // presisi seperti kalau dipaksa 2 desimal.
+        v = `${a}.${b.slice(0, 6)}`;
+      }
+      if (ev.target.value !== v) ev.target.value = v;
+      y.months[m].realisasi = v;
+    },
+    // Saat keluar dari sel, rapikan menjadi 2 desimal (7.4 -> 7.40).
+    onAchBlur(y, m, ev) {
+      const raw = String(ev.target.value).replace(',', '.').trim();
+      let out = '';
+      if (raw !== '' && !Number.isNaN(Number(raw))) {
+        const n = Number(raw);
+        const r2 = Math.round(n * 100) / 100;
+        // Lihat fmtAch(): 2 desimal hanya bila presisinya utuh, supaya angka
+        // kecil seperti 0.002 tidak berubah menjadi 0.00.
+        out = Math.abs(n - r2) < 1e-9 ? r2.toFixed(2) : String(n);
+      }
+      y.months[m].realisasi = out;
+      ev.target.value = out;
+    },
+    achNumOf(y, m) {
+      const c = this.cellOf(y, m);
+      if (!c) return null;
+      const v = String(c.realisasi ?? '').replace(',', '.');
+      if (v === '') return null;
+      const n = Number(v);
+      return Number.isNaN(n) ? null : n;
+    },
+    // KPI Achievement sebuah sel bulan:
+    //   achievement >= target  -> bobot penuh (nilai maksimal)
+    //   achievement <  target  -> (achievement / target) x bobot
+    // Dipakai di modal Sumber Data. Indikator lain bisa memakai rumus berbeda
+    // (rumus per indikator), jadi perhitungan dipusatkan di sini.
+    // Rumus khusus indikator "Pengendalian Piutang Overdue" di popup Sumber Data
+    // (permintaan Pak 2026-11-19):
+    //   achievement <= 2  -> KPI Ach = bobot penuh
+    //   achievement >  2  -> KPI Ach = (target / achievement) x bobot
+    // Indikator lain tetap memakai kpiAchOf().
+    kpiAchOfPopup(y, m) {
+      if (!/pengendalian piutang overdue/i.test(String(y.indikator || ''))) {
+        return this.kpiAchOf(y, m);
+      }
+      const ach = this.achNumOf(y, m);
+      const target = Number(this.yTarget(y));
+      const bobot = this.yBobot(y);
+      if (ach === null || !target || bobot === null || bobot === undefined) {
+        return null;
+      }
+      if (ach <= 2) return Number(bobot);
+      return Math.min(Number(bobot), (target / ach) * Number(bobot));
+    },
+    kpiAchOf(y, m) {
+      const ach = this.achNumOf(y, m);
+      const target = Number(this.yTarget(y));
+      const bobot = this.yBobot(y);
+      if (ach === null || !target || bobot === null || bobot === undefined) {
+        return null;
+      }
+      if (ach >= target) return Number(bobot);
+      return (ach / target) * Number(bobot);
+    },
+    yBobot(y) {
+      const d = this.getDraft(y.setup_id);
+      return d ? d.bobot : y.ref.bobot;
+    },
+    yTarget(y) {
+      const d = this.getDraft(y.setup_id);
+      return d ? d.target : y.ref.target;
+    },
+    ySchedule(y) {
+      const d = this.getDraft(y.setup_id);
+      return d ? d.schedule : y.ref.schedule;
+    },
+    // Bulan yang boleh diisi sesuai Schedule (null = semua bulan).
+    yScheduleMonths(y) {
+      return this.scheduleMonths(this.ySchedule(y));
+    },
+    // Sel terkunci bila: belum ada baris data, bulan itu sudah diajukan, atau
+    // bulannya di luar jadwal indikator (Triwulan/Semester/Annual).
+    cellLocked(y, m) {
+      const c = this.cellOf(y, m);
+      if (!c) return true;
+      if (c.submitted) return true;
+      const months = this.yScheduleMonths(y);
+      if (months && !months.includes(m)) return true;
+      // Bulan yang belum berjalan dikunci (kecuali Admin) — server menolak
+      // menyimpan periode yang belum berjalan.
+      if (!this.isAdmin && String(c.periode) > this.currentYm) return true;
+      return false;
+    },
+    cellLockHint(y, m) {
+      const c = this.cellOf(y, m);
+      if (!c) return 'Bulan ini belum punya baris data';
+      if (c.submitted) return 'Bulan ini sudah diajukan untuk approval';
+      const months = this.yScheduleMonths(y);
+      if (months && !months.includes(m)) {
+        return `Jadwal ${this.ySchedule(
+          y,
+        )} hanya diisi bulan ${this.monthsLabel(months)}`;
+      }
+      if (!this.isAdmin && String(c.periode) > this.currentYm) {
+        return 'Bulan belum berjalan — belum bisa diisi';
+      }
+      return 'Achievement bulan ini';
+    },
+    // Skor satu sel = persen 0-100 (bobot TIDAK dikali) — sama dengan aturan
+    // kolom Skor sebelumnya.
+    cellScore(c) {
+      if (
+        !c ||
+        c.realisasi === null ||
+        c.realisasi === undefined ||
+        c.realisasi === ''
+      ) {
+        return null;
+      }
+      const target = Number(c.target) || 0;
+      const real = Number(c.realisasi) || 0;
+      if (!target) return null;
+      const s = c.lower ? (target / (real || 1)) * 100 : (real / target) * 100;
+      return Math.min(100, s);
+    },
+    // Average (aturan Pak, 2026-11-17):
+    //   Average = (jumlah KPI Ach pada bulan jadwal) / jumlah bulan jadwal
+    //   - Bulanan  -> 12 bulan, dibagi 12
+    //   - Triwulan -> Mar/Jun/Sep/Des, dibagi 4
+    //   - Semester -> Jun/Des, dibagi 2
+    //   - Annual   -> Des, dibagi 1
+    // KPI Ach tiap bulan sudah berbobot (lihat kpiAchOf), jadi kalau semua
+    // target tercapai nilainya 100 (sesuai total bobot divisi).
+    yScore(y) {
+      const months = this.yScheduleMonths(y);
+      const divisor = months && months.length ? months.length : 12;
+      let sum = 0;
+      let filled = false;
+      for (let m = 1; m <= 12; m += 1) {
+        if (months && !months.includes(m)) continue;
+        // Sejak 2026-11-19 kolom AVG KPI Ach ikut memakai rumus popup
+        // (kpiAchOfPopup) agar angkanya sama dengan angka KPI Ach yang dilihat
+        // user di ikon klip - termasuk aturan khusus Pengendalian Piutang
+        // Overdue: <=2 bobot penuh, >2 (target/achievement) x bobot.
+        const k = this.kpiAchOfPopup(y, m);
+        if (k === null) continue;
+        sum += k;
+        filled = true;
+      }
+      if (!filled) return null;
+      return sum / divisor;
+    },
+    yScoreDisplay(y) {
+      const s = this.yScore(y);
+      // Dua angka di belakang koma (permintaan Pak 2026-11-19), mis. 41.67%.
+      return s === null ? '—' : `${s.toFixed(2)}%`;
+    },
+    // AVG Ach (permintaan Pak 2026-11-20, revisi rumus 2026-11-20):
+    //   Ach bulan = (Achievement ÷ Target) × 100, dibatasi maksimal 100.
+    //   AVG Ach   = rata-rata Ach selama setahun HANYA dari bulan yang terisi —
+    //               bulan jadwal yang belum diisi TIDAK ikut jadi pembagi
+    //               (dulu dibagi jumlah bulan jadwal sehingga angka tampak kecil,
+    //               mis. LND 16.48% padahal bulan yang ada nilainya ~99%).
+    // Indikator ber-rumus (Target/Achievement) tetap ikut aturannya lewat
+    // cellScore(), sama seperti skor bulanan. Warna: >=100 biru, >=90 hijau,
+    // >=80 kuning, <80 merah (skorClassOf).
+    yAvgAch(y) {
+      const months = this.yScheduleMonths(y);
+      let sum = 0;
+      let count = 0;
+      for (let m = 1; m <= 12; m += 1) {
+        if (months && !months.includes(m)) continue;
+        const s = this.cellScore(this.cellOf(y, m));
+        if (s === null) continue;
+        sum += s;
+        count += 1;
+      }
+      if (!count) return null;
+      return sum / count;
+    },
+    yAvgAchDisplay(y) {
+      const s = this.yAvgAch(y);
+      return s === null ? '—' : `${s.toFixed(2)}%`;
+    },
+    yAvgAchClass(y) {
+      return this.skorClassOf(this.yAvgAch(y));
+    },
+    // Baris TOTAL (permintaan Pak 2026-11-20, revisi ke-3):
+    //   tiap indikator -> AVG Ach (achievement per bulan ÷ target × 100, maks 100)
+    //   TOTAL = jumlah AVG Ach indikator grup ÷ jumlah indikator yang SUDAH ADA
+    //   NILAI-nya. Indikator kosong tidak ikut jadi pembagi (kontribusi 0 hanya
+    //   kalau memang belum ada nilai). Grup = kombinasi divisi + cabang.
+    yGroupAvgAch(g) {
+      let sum = 0;
+      let count = 0;
+      for (const y of g.rows) {
+        const v = this.yAvgAch(y);
+        if (v === null) continue;
+        sum += v;
+        count += 1;
+      }
+      // Tidak ada satu pun indikator yang terisi -> '—' (bukan 0.00%).
+      if (!count) return null;
+      return sum / count;
+    },
+    yGroupAvgAchDisplay(g) {
+      const s = this.yGroupAvgAch(g);
+      return s === null ? '—' : `${s.toFixed(2)}%`;
+    },
+    yGroupAvgAchClass(g) {
+      return this.skorClassOf(this.yGroupAvgAch(g));
+    },
+    yStatusLabel(y) {
+      return statusText(this.yScore(y));
+    },
+    yBadge(y) {
+      return `orangehrm-status ${statusColor(this.yScore(y))}`;
+    },
+    yScoreColorClass(y) {
+      return this.skorClassOf(this.yScore(y));
+    },
+    // Total bobot & skor per divisi (baris TOTAL BOBOT).
+    yGroupBobot(g) {
+      return g.rows.reduce((a, y) => a + (Number(this.yBobot(y)) || 0), 0);
+    },
+    // Total divisi = jumlah Average tiap indikator (bobot tiap indikator sudah
+    // masuk ke KPI Ach, jadi total maksimalnya = total bobot divisi).
+    yGroupScore(g) {
+      let sum = 0;
+      let filled = false;
+      for (const y of g.rows) {
+        const s = this.yScore(y);
+        if (s === null) continue;
+        sum += s;
+        filled = true;
+      }
+      return filled ? sum : null;
+    },
+    // Baris TOTAL kolom bulan (revisi Pak 2026-11-20): rata-rata ACHIEVEMENT
+    // semua indikator pada bulan itu —
+    //   tiap indikator: achievement bulan ÷ target × 100 (maks 100)
+    //   nilai sel    : jumlah hasil semua indikator ÷ jumlah indikator yang
+    //                  achievement bulan itu TERISI
+    // Jadi angkanya persen murni 0–100 (bukan lagi Σ KPI Ach berbobot yang
+    // maksimumnya = total bobot divisi). Bulan tanpa nilai sama sekali → '—'.
+    yGroupMonthScore(g, m) {
+      let sum = 0;
+      let count = 0;
+      for (const y of g.rows) {
+        const s = this.cellScore(this.cellOf(y, m));
+        if (s === null) continue;
+        sum += s;
+        count += 1;
+      }
+      return count ? sum / count : null;
+    },
+    yGroupMonthDisplay(g, m) {
+      const s = this.yGroupMonthScore(g, m);
+      return s === null ? '—' : `${s.toFixed(2)}%`;
+    },
+    yGroupScoreDisplay(g) {
+      const s = this.yGroupScore(g);
+      return s === null ? '—' : `${s.toFixed(2)}%`;
+    },
+    yGroupStatus(g) {
+      const s = this.yGroupScore(g);
+      return s === null ? 'Belum diisi' : statusText(s);
+    },
+    yGroupBadge(g) {
+      return `orangehrm-status ${statusColor(this.yGroupScore(g))}`;
+    },
+    yGroupScoreClass(g) {
+      return this.skorClassOf(this.yGroupScore(g));
+    },
+    // Ada nilai Achievement di salah satu bulan? (untuk ikon History)
+    yearHasValue(y) {
+      for (let m = 1; m <= 12; m += 1) {
+        if (this.cellScore(this.cellOf(y, m)) !== null) return true;
+      }
+      return false;
+    },
+    openHistoryYear(y) {
+      for (let m = 1; m <= 12; m += 1) {
+        const c = this.cellOf(y, m);
+        if (this.cellScore(c) !== null) {
+          this.openHistory(c);
+          return;
+        }
+      }
+    },
+    // --- Hapus indikator (semua bulan pada tahun yang tampil) ---
+    yearRowKeys(y) {
+      const keys = [];
+      for (let m = 1; m <= 12; m += 1) {
+        const c = this.cellOf(y, m);
+        if (c) keys.push(this.rowKey(c));
+      }
+      return keys;
+    },
+    yearMarked(y) {
+      return this.yearRowKeys(y).some((k) => this.deletedKeys.includes(k));
+    },
+    yearDeletable(y) {
+      return this.yearRowKeys(y).some((k) => {
+        const c = this.rows.find((r) => this.rowKey(r) === k);
+        return c ? this.isRowDeletable(c) : false;
+      });
+    },
+    // Centang / lepas SEMUA indikator sekaligus dari checkbox di header tabel.
+    toggleDeleteAll() {
+      const list = this.deletableYears;
+      if (this.allYearsMarked) {
+        list.forEach((y) => {
+          if (this.yearMarked(y)) this.toggleDeleteYear(y);
+        });
+        return;
+      }
+      list.forEach((y) => {
+        if (!this.yearMarked(y)) this.toggleDeleteYear(y);
+      });
+    },
+    toggleDeleteYear(y) {
+      const keys = this.yearRowKeys(y);
+      if (this.yearMarked(y)) {
+        this.deletedKeys = this.deletedKeys.filter((k) => !keys.includes(k));
+        return;
+      }
+      const add = keys.filter((k) => {
+        const c = this.rows.find((r) => this.rowKey(r) === k);
+        return c ? this.isRowDeletable(c) : false;
+      });
+      this.deletedKeys = Array.from(new Set([...this.deletedKeys, ...add]));
+    },
+    // --- Sumber Data per sel bulan (modal kecil) ---
+    openSumber(y, m) {
+      const c = this.cellOf(y, m);
+      if (!c) return;
+      this.sumberModal = {
+        key: this.rowKey(c),
+        yKey: y.key,
+        m,
+        label: `${y.indikator} — ${MONTH_NAMES[m - 1]} ${this.applied.year}`,
+        bukti: c.bukti || '',
+        locked: this.cellLocked(y, m),
+      };
+    },
+    closeSumber() {
+      this.sumberModal = null;
+    },
+    // Simpan link Sumber Data: langsung dikirim ke server (draft) untuk baris
+    // bulan itu saja, lalu tampilkan pesan berhasil.
+    async saveSumber() {
+      if (!this.sumberModal) return;
+      const s = this.sumberModal;
+      if (s.locked) {
+        this.sumberModal = null;
+        return;
+      }
+      const r = this.rows.find((x) => this.rowKey(x) === s.key);
+      const link = String(s.bukti || '').trim();
+      if (!r) {
+        this.sumberModal = null;
+        return;
+      }
+      if (link === '') {
+        this.$toast.error({
+          title: 'Link Sumber Data kosong',
+          message: 'Isi link terlebih dahulu, lalu klik Simpan.',
+        });
+        return;
+      }
+      this.sumberSaving = true;
+      try {
+        const res = await fetch(
+          `${this.getBaseUrl()}/proxy/save_kpi_realisasi.php`,
+          {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              emp: this.empNumber,
+              submit: false,
+              rows: [
+                {
+                  setup_id: r.setup_id,
+                  divisi: r.divisi,
+                  cabang: r.cabang || '',
+                  periode: r.periode,
+                  realisasi: r.realisasi,
+                  bukti: link,
+                },
+              ],
+            }),
+          },
+        );
+        const json = await res.json();
+        if (json.status === 'success' && Number(json.saved) > 0) {
+          r.bukti = link;
+          this.sumberModal = null;
+          await Swal.fire({
+            icon: 'success',
+            title: 'Berhasil Disimpan',
+            html:
+              'Link Sumber Data berhasil disimpan.' +
+              `<br><span style="font-size:12px;color:#6b7280">${this.escapeHtml(
+                link,
+              )}</span>`,
+            confirmButtonText: 'OK',
+          });
+        } else {
+          // Server menolak (mis. bulan di luar jadwal) — simpan sementara di
+          // tabel supaya tidak hilang, tapi beri tahu Pak bahwa belum masuk DB.
+          r.bukti = link;
+          this.sumberModal = null;
+          this.$toast.warning({
+            title: 'Belum tersimpan ke server',
+            message:
+              json.message ||
+              'Link disimpan di tabel. Klik Simpan di bawah tabel untuk mencoba lagi.',
+          });
+        }
+      } catch (e) {
+        this.$toast.error({
+          title: 'Gagal menyimpan',
+          message: e.message,
+        });
+      } finally {
+        this.sumberSaving = false;
+      }
+    },
+    escapeHtml(v) {
+      return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    },
     scoreOf(r) {
       if (
         r.realisasi === null ||
@@ -1430,17 +2087,64 @@ export default {
     // Baris judul/filter tidak ikut supaya kolom CSV langsung lurus (rapi saat
     // dibuka di Excel / Google Sheets dan gampang difilter).
     exportExcel() {
-      const groups = this.filteredGroups;
+      const groups = this.yearGroups;
       if (!groups.length) return;
       const matrix = [EXPORT_COLUMNS.map((c) => c.title)];
+      const monthCells = (y) =>
+        Array.from({length: 12}, (_, i) => {
+          const c = this.cellOf(y, i + 1);
+          if (!c) return '';
+          if (c.realisasi === null || c.realisasi === undefined) return '';
+          const raw = String(c.realisasi).trim();
+          if (raw === '') return '';
+          const n = Number(raw.replace(',', '.'));
+          return Number.isNaN(n) ? raw : n;
+        });
       for (const g of groups) {
-        for (const r of g.rows) {
-          matrix.push(this.exportDataRow(r).map(csvCellValue));
+        for (const y of g.rows) {
+          const skor = this.yScore(y);
+          matrix.push([
+            y.indikator,
+            this.divisiName(y.divisi),
+            y.cabang || 'HO',
+            Number(this.yTarget(y)) || 0,
+            y.satuan || '',
+            Number(this.yBobot(y)) || 0,
+            this.applied.year,
+            this.ySchedule(y) || '',
+            ...monthCells(y),
+            skor === null ? '' : Math.round(skor * 100) / 100,
+            this.yAvgAch(y) === null
+              ? ''
+              : Math.round(this.yAvgAch(y) * 100) / 100,
+            this.yStatusLabel(y),
+          ]);
         }
-        matrix.push(this.exportTotalRow(g).map(csvCellValue));
+        const gskor = this.yGroupScore(g);
+        matrix.push([
+          'TOTAL',
+          this.divisiName(g.divisi),
+          '',
+          '',
+          '',
+          Math.round(this.yGroupBobot(g) * 100) / 100,
+          this.applied.year,
+          '',
+          ...Array.from({length: 12}, (_, i) => {
+            const gv = this.yGroupMonthScore(g, i + 1);
+            return gv === null ? '' : Math.round(gv * 100) / 100;
+          }),
+          gskor === null ? '' : Math.round(gskor * 100) / 100,
+          this.yGroupAvgAch(g) === null
+            ? ''
+            : Math.round(this.yGroupAvgAch(g) * 100) / 100,
+          this.yGroupStatus(g),
+        ]);
       }
       downloadCsv(
-        `Input_Realisasi_KPI_${this.exportStamp('file')}.csv`,
+        `Input_Realisasi_KPI_${this.applied.year}_${this.exportStamp(
+          'file',
+        )}.csv`,
         matrix,
       );
     },
@@ -1495,7 +2199,10 @@ export default {
         {v: r.satuan || '', s: XLSX_STYLE.CELL},
         {v: this.rowSchedule(r) || '', s: XLSX_STYLE.CELL},
         {v: real, s: XLSX_STYLE.NUM},
-        {v: skor === null ? '' : Math.round(skor * 10) / 10, s: XLSX_STYLE.PCT},
+        {
+          v: skor === null ? '' : Math.round(skor * 100) / 100,
+          s: XLSX_STYLE.PCT,
+        },
         {v: this.statusLabel(r), s: statusStyleForColor(statusColor(skor))},
         {v: r.bukti || '', s: XLSX_STYLE.CELL},
       ];
@@ -1505,7 +2212,7 @@ export default {
       const skor = this.groupSkor(g);
       const grey = {v: '', s: XLSX_STYLE.TOTAL_LABEL};
       return [
-        {v: 'TOTAL BOBOT', s: XLSX_STYLE.TOTAL_LABEL},
+        {v: 'TOTAL', s: XLSX_STYLE.TOTAL_LABEL},
         {...grey},
         {...grey},
         {...grey},
@@ -1515,7 +2222,7 @@ export default {
         {...grey},
         {...grey},
         {
-          v: skor === null ? '' : Math.round(skor * 10) / 10,
+          v: skor === null ? '' : Math.round(skor * 100) / 100,
           s: XLSX_STYLE.TOTAL_PCT,
         },
         {v: this.groupStatus(g), s: statusStyleForColor(statusColor(skor))},
@@ -1525,7 +2232,10 @@ export default {
     async fetchData() {
       this.isLoading = true;
       try {
-        const params = new URLSearchParams({emp: String(this.empNumber)});
+        const params = new URLSearchParams({
+          emp: String(this.empNumber),
+          year: String(this.applied.year || new Date().getFullYear()),
+        });
         const res = await fetch(
           `${this.getBaseUrl()}/proxy/get_kpi_realisasi.php?${params}`,
         );
@@ -1543,7 +2253,18 @@ export default {
           if (!this.addForm.cabang) {
             this.addForm.cabang = this.locationOptions[0] || null;
           }
-          this.rows = d.rows || [];
+          // Simpan nilai asli per baris supaya saat Simpan hanya sel yang
+          // benar-benar diubah yang dikirim (menghindari ratusan baris bulan
+          // lain/ masa depan ikut terkirim dan "dilewati" server).
+          this.rows = (d.rows || []).map((r) => ({
+            ...r,
+            // Nilai Achievement ditampilkan dengan 2 angka di belakang koma
+            // (permintaan Pak 2026-11-19), mis. 7.4 -> 7.40. Nilai asli server
+            // tetap disimpan di _origRealisasi untuk deteksi perubahan.
+            realisasi: this.fmtAch(r.realisasi),
+            _origRealisasi: r.realisasi,
+            _origBukti: r.bukti,
+          }));
         } else {
           console.error('Server:', json.message);
         }
@@ -1553,15 +2274,46 @@ export default {
         this.isLoading = false;
       }
     },
+    // Baris dianggap berubah bila nilai Achievement atau link bukti berbeda
+    // dari data terakhir yang dimuat dari server.
+    isRowDirty(r) {
+      const txt = (v) =>
+        v === null || v === undefined ? '' : String(v).trim();
+      if (txt(r.bukti) !== txt(r._origBukti)) return true;
+      const num = (v) => {
+        if (v === null || v === undefined || String(v).trim() === '')
+          return null;
+        const n = Number(String(v).replace(',', '.'));
+        return Number.isNaN(n) ? String(v).trim() : n;
+      };
+      const a = num(r.realisasi);
+      const b = num(r._origRealisasi);
+      if (a === null && b === null) return false;
+      return a !== b;
+    },
     async save(flag) {
-      // Baris yang input-nya dikunci jadwal (Triwulan/Semester di luar jendela
-      // penginputan) TIDAK ikut dikirim, supaya nilai lama di DB tidak tertimpa
-      // oleh angka yang tampil di layar.
+      // Sejak tabel per tahun (2026-11-17):
+      // - Simpan draft -> kirim semua sel tahun aktif yang belum diajukan.
+      // - Ajukan       -> semua sel terisi pada tahun aktif. Dropdown "Bulan
+      //                   Pengajuan" dihapus atas permintaan Pak; approval tetap
+      //                   per bulan karena tiap baris membawa periode sendiri
+      //                   dan server memvalidasi jendela input per periode.
+      const year = String(this.applied.year || '');
+      const source = this.rows.filter(
+        (r) => !year || String(r.periode).slice(0, 4) === year,
+      );
       const payload = {
         emp: this.empNumber,
         submit: flag,
-        rows: this.rows
-          .filter((r) => !this.inputLocked(r))
+        rows: source
+          .filter((r) => !r.submitted)
+          .filter((r) =>
+            flag
+              ? r.realisasi !== null &&
+                r.realisasi !== undefined &&
+                r.realisasi !== ''
+              : this.isRowDirty(r),
+          )
           .map((r) => ({
             setup_id: r.setup_id,
             divisi: r.divisi,
@@ -1571,6 +2323,13 @@ export default {
             bukti: r.bukti,
           })),
       };
+      if (flag && !payload.rows.length) {
+        this.$toast.error({
+          title: 'Tidak ada nilai untuk diajukan',
+          message: 'Isi minimal satu sel pada tahun aktif terlebih dahulu.',
+        });
+        return;
+      }
       try {
         const res = await fetch(
           `${this.getBaseUrl()}/proxy/save_kpi_realisasi.php`,
@@ -1588,7 +2347,10 @@ export default {
             const failedEdits = await this.submitPendingEdits();
             // Popup SweetAlert (samakan pola dgn Save Draft/Add) — pengganti toast.
             await Swal.fire({
-              icon: failedEdits ? 'warning' : 'success',
+              icon:
+                failedEdits || Number(json.skippedJadwal || 0) > 0
+                  ? 'warning'
+                  : 'success',
               title: 'Berhasil Diajukan',
               text:
                 json.message +
@@ -1597,11 +2359,21 @@ export default {
             });
             await this.fetchData();
           } else {
+            // Jangan tampilkan "sukses" polos kalau ada baris yang dilewati
+            // server (mis. periode masa depan) — nilainya tidak tersimpan.
             await Swal.fire({
-              icon: 'success',
-              title: 'Save Successfully',
+              icon: Number(json.skippedJadwal || 0) > 0 ? 'warning' : 'success',
+              title:
+                Number(json.skippedJadwal || 0) > 0
+                  ? 'Sebagian Belum Tersimpan'
+                  : 'Save Successfully',
               text: json.message || 'Draft disimpan.',
               confirmButtonText: 'OK',
+            });
+            // Tandai nilai terkirim sebagai baseline baru.
+            this.rows.forEach((r) => {
+              r._origRealisasi = r.realisasi;
+              r._origBukti = r.bukti;
             });
           }
         } else {
@@ -1660,28 +2432,30 @@ export default {
       this.save(true);
     },
     onSearch() {
-      // Snapshot nilai filter -> diterapkan ke tampilan (frontend-only).
-      this.currentPage = 1;
+      // Snapshot filter -> tampilan. Year dipakai juga untuk memuat 12 bulan
+      // tahun itu dari server (biar kolom Jan..Des selalu lengkap).
+      const tahun = this.filters.year?.id
+        ? String(this.filters.year.id)
+        : String(new Date().getFullYear());
       this.applied = {
         division: this.filters.division || null,
         cabang: this.filters.cabang || null,
-        fromDate: this.filters.fromDate || '',
-        toDate: this.filters.toDate || '',
+        year: tahun,
       };
+      this.fetchData();
     },
     onReset() {
       const semua = {id: 0, label: 'Semua'};
-      this.currentPage = 1;
+      const tahun = String(new Date().getFullYear());
       this.filters.division = semua;
       this.filters.cabang = semua;
-      this.filters.fromDate = '';
-      this.filters.toDate = '';
+      this.filters.year = {id: tahun, label: tahun};
       this.applied = {
         division: semua,
         cabang: semua,
-        fromDate: '',
-        toDate: '',
+        year: tahun,
       };
+      this.fetchData();
     },
     toggleAdd() {
       this.showAdd = true;
@@ -2158,7 +2932,20 @@ export default {
 }
 .orangehrm-hist {
   color: #64728c;
-  margin-left: 0.35rem;
+  margin-left: 0.6rem;
+}
+// Kolom Aksi: ikon pencil + history berjajar ke samping (tidak turun ke bawah),
+// diberi jarak supaya tidak berdesakan, dan sel-nya menempel di kanan tabel
+// (lihat `.orangehrm-kpi-year` -> th/td:last-child) agar tetap terlihat saat
+// tabel 12 bulan digeser horizontal.
+.orangehrm-aksi-cell {
+  white-space: nowrap;
+  text-align: center;
+  padding: 4px 10px !important;
+
+  > * {
+    vertical-align: middle;
+  }
 }
 .orangehrm-change-cell {
   font-weight: 600;
@@ -2224,6 +3011,13 @@ export default {
     margin: 0;
   }
 }
+// Checkbox "pilih semua" di header: sedikit lebih kecil + warna abu netral
+// supaya tidak terbaca sebagai baris yang ikut terhapus.
+.orangehrm-delete-head input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: #64728c;
+}
 .orangehrm-indikator {
   font-weight: 600;
   color: #303030;
@@ -2234,9 +3028,10 @@ export default {
   padding: 3px 12px;
   border-radius: 20px;
   font-size: 12px;
-  font-weight: 600;
+  // ditebalkan (permintaan Pak 2026-11-18): 600 -> 700
+  font-weight: 700;
   background: #f1f5f9;
-  color: #64748b;
+  color: #475569;
   white-space: nowrap;
 }
 .orangehrm-subrow {
@@ -2338,5 +3133,182 @@ export default {
     background: #f1f5f9;
     color: #64748b;
   }
+}
+
+// ==== Tabel Input Realisasi KPI per TAHUN (2026-11-17) ====
+// 12 kolom bulan + kolom tetap; tabel dilebarkan dan bisa digeser horizontal
+// (pembungkus .orangehrm-table-wrap sudah overflow-x: auto).
+.orangehrm-kpi-year {
+  min-width: 1480px;
+  // Nama kolom dibuat tebal (permintaan Pak, 2026-11-17) + warna lebih gelap
+  // supaya terbaca jelas di atas 12 kolom bulan.
+  thead th {
+    font-weight: 700;
+    color: #4b5563;
+  }
+  // Kolom Indikator menempel di kiri saat tabel digeser horizontal (12 bulan),
+  // supaya nama indikator tetap terlihat.
+  th:nth-child(2),
+  td:nth-child(2) {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: 1px 0 0 #e4e6ea;
+  }
+  thead th:nth-child(2) {
+    z-index: 3;
+  }
+  .orangehrm-total-row td:nth-child(2) {
+    background: #f3f4f6;
+  }
+  // Kolom Aksi menempel di KANAN: ikon tetap terlihat tanpa harus menggeser
+  // tabel ke ujung, dan tidak berdesakan lagi.
+  th:last-child,
+  td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: -1px 0 0 #e4e6ea;
+  }
+  th:last-child {
+    z-index: 3;
+    min-width: 86px;
+  }
+  .orangehrm-total-row td:last-child {
+    background: #f3f4f6;
+  }
+}
+// Tombol bawah tabel (Simpan & Ajukan Verifikasi) dibuat KUNING pekat
+// (permintaan Pak 2026-11-18). OXD tidak punya varian kuning, jadi di-override
+// di scoped style komponen — kode OXD tidak diubah.
+.orangehrm-btn-kuning {
+  background-color: #ffc107 !important;
+  border-color: #ffc107 !important;
+  color: #202020 !important;
+  font-weight: 600;
+
+  &:hover:not(:disabled),
+  &:focus:not(:disabled) {
+    background-color: #e8ae00 !important;
+    border-color: #e8ae00 !important;
+    color: #202020 !important;
+  }
+
+  &:active:not(:disabled) {
+    background-color: #cf9b00 !important;
+    border-color: #cf9b00 !important;
+  }
+
+  &:disabled {
+    background-color: #ffe6a3 !important;
+    border-color: #ffe6a3 !important;
+    color: #8a7a3d !important;
+    cursor: not-allowed;
+  }
+}
+.orangehrm-month-head {
+  text-align: center !important;
+  white-space: nowrap;
+}
+.orangehrm-month-cell {
+  padding: 3px 4px !important;
+  position: relative;
+  text-align: center;
+  white-space: nowrap;
+  .orangehrm-real {
+    // ikon klip sekarang 15px & bold: kotaknya melebar ~23px, jadi input
+    // dilebarkan + padding kanan ditambah supaya angka tidak tertimpa ikon.
+    width: 70px;
+    padding-right: 26px;
+    text-align: right;
+  }
+}
+.orangehrm-month-empty {
+  color: #b7bcc4;
+}
+// Ikon klip (Sumber Data) ditebalkan (permintaan Pak 2026-11-18):
+// emoji tidak punya ketebalan font, jadi ukuran dinaikkan + digambar ulang
+// dengan stroke tipis (text-stroke/shadow) supaya terlihat bold dan jelas.
+.orangehrm-sumber-btn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  // Ikon vektor (bukan emoji) supaya bisa dicetak tebal: emoji mengabaikan
+  // color/font-weight, ikon font mengikuti keduanya.
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  color: #1d4ed8;
+  opacity: 1;
+  -webkit-text-stroke: 0.45px currentColor;
+  &:hover {
+    color: #1e40af;
+    -webkit-text-stroke: 0.6px currentColor;
+  }
+}
+.orangehrm-sumber-filled {
+  opacity: 1;
+  color: #1d4ed8;
+}
+.orangehrm-sumber-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-right: 12px;
+}
+.orangehrm-sumber-info {
+  margin: 0.4rem 0 0.6rem;
+  border: 1px solid #e4e6ea;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.orangehrm-sumber-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid #f0f1f3;
+  span {
+    color: #6b7280;
+    white-space: nowrap;
+  }
+  b {
+    color: #303030;
+    text-align: right;
+    word-break: break-word;
+  }
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+.orangehrm-sumber-kpi {
+  background: #f7f8fa;
+  b {
+    font-size: 14px;
+    color: #2463eb;
+  }
+}
+.orangehrm-sumber-kpi-max {
+  b {
+    color: #12a150;
+  }
+}
+.orangehrm-sumber-note {
+  margin: 0 0 0.4rem;
+  font-size: 11.5px;
+  color: #8b95a5;
+  line-height: 1.45;
+}
+.orangehrm-submit-month {
+  display: inline-block;
+  min-width: 200px;
+  margin-right: 12px;
+  vertical-align: bottom;
 }
 </style>

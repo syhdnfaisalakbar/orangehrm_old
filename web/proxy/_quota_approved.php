@@ -46,7 +46,7 @@ function quota_approved_subquery(): string
         INNER JOIN ohrm_case_attributes attr_year
                ON attr_year.ref_note_id = qr.note_id AND attr_year.attribute_name = 'YEAR'
         INNER JOIN ohrm_case_attributes attr_tot
-               ON attr_tot.ref_note_id = qr.note_id AND attr_tot.attribute_name = 'TOTPERSON'
+               ON attr_tot.ref_note_id = qr.note_id AND attr_tot.attribute_name IN ('TOTPERSON', 'TOTPERSONN')
         WHERE la.approval_status = 'Completed'
         GROUP BY TRIM(attr_dept.attribute_value), CAST(attr_year.attribute_value AS UNSIGNED)
     ";
@@ -79,7 +79,7 @@ function quota_approved_for(PDO $pdo, string $dept, int $year): int
             INNER JOIN ohrm_case_attributes attr_year
                    ON attr_year.ref_note_id = qr.note_id AND attr_year.attribute_name = 'YEAR'
             INNER JOIN ohrm_case_attributes attr_tot
-                   ON attr_tot.ref_note_id = qr.note_id AND attr_tot.attribute_name = 'TOTPERSON'
+                   ON attr_tot.ref_note_id = qr.note_id AND attr_tot.attribute_name IN ('TOTPERSON', 'TOTPERSONN')
             WHERE la.approval_status = 'Completed'
               AND TRIM(attr_dept.attribute_value) = :dept
               AND CAST(attr_year.attribute_value AS UNSIGNED) = :yr

@@ -361,12 +361,6 @@ export default {
           cellRenderer: this.cellRendererReqType,
         },
         {
-          name: 'hiringManager',
-          title: this.$t('recruitment.hiring_manager'),
-          sortField: 'hiringManager.lastName',
-          style: {flex: 3},
-        },
-        {
           name: 'status',
           title: this.$t('general.status'),
           sortField: 'vacancy.status',
@@ -538,11 +532,33 @@ export default {
           const attributes = item.Attributes || [];
 
           // Helper untuk mengambil value atribut
+          // LOOKUP TOLERAN (2026-11-23): AttributeID Acumatica bisa berubah nama,
+          // mis. TOTPERSON → TOTPERSONN di class REQFPTK. Urutan: exact →
+          // alias eksplisit → prefix. Kalau exact-match saja, no_of_positions
+          // jatuh ke fallback 1 (vacancy dibuat dengan jumlah posisi salah).
+          const normAttr = (v) =>
+            String(v ?? '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, '');
+          const ATTR_ALIASES = {totperson: ['totpersonn']};
           const getAttrValue = (attrId) => {
-            const searchId = attrId.toLowerCase();
-            const found = attributes.find(
-              (a) => a.AttributeID?.value?.toLowerCase() === searchId,
+            const searchId = normAttr(attrId);
+            let found = attributes.find(
+              (a) => normAttr(a.AttributeID?.value) === searchId,
             );
+            if (!found) {
+              const aliases = ATTR_ALIASES[searchId] || [];
+              found = attributes.find((a) => {
+                const id = normAttr(a.AttributeID?.value);
+                return id !== '' && aliases.some((al) => normAttr(al) === id);
+              });
+            }
+            if (!found) {
+              found = attributes.find((a) => {
+                const id = normAttr(a.AttributeID?.value);
+                return id !== '' && id.startsWith(searchId);
+              });
+            }
             return found
               ? found.ValueDescription?.value || found.Value?.value
               : null;

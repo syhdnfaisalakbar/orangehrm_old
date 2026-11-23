@@ -10,7 +10,7 @@
 <template>
   <div class="cand-import">
     <oxd-button
-      :label="isSaving ? 'Menyimpan...' : 'Upload Excel'"
+      :label="isSaving ? 'Menyimpan...' : 'Upload'"
       icon-name="upload"
       display-type="secondary"
       :disabled="isSaving"

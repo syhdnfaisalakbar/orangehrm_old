@@ -35,6 +35,18 @@ class DashboardController extends AbstractVueController
 
     public function preRender(Request $request): void
     {
+        // Fork ASG: role ESS dan BOD yang membuka menu "Dashboard" langsung
+        // diarahkan ke tab "Dashboard Divisi" (permintaan Pak). Home page kedua
+        // role memang menunjuk ke sana, tapi klik menu Dashboard tetap memakai URL
+        // bawaan dashboard/index (screen 103) sehingga yang tampil widget biasa.
+        // Role lain (Admin, MPP, ...) tidak terpengaruh.
+        $roleName = strtoupper((string) $this->getAuthUser()->getUserRoleName());
+        if (in_array($roleName, ['ESS', 'BOD'], true)) {
+            $this->setResponse($this->redirect('dashboard/dashboardDivisi'));
+
+            return;
+        }
+
         $component = new Component('view-dashboard');
         $this->setComponent($component);
 
@@ -47,6 +59,9 @@ class DashboardController extends AbstractVueController
             // Widget custom fork: hanya role yang diberi can_read di data group ini
             // (lihat deploy/sql/dashboard-rf-widget-role.sql → MPP + Admin).
             'dashboard_resource_fulfillment_widget',
+            // Widget Quick Launch: hanya role yang diberi can_read di data group ini
+            // (lihat deploy/sql/mpp-hide-quick-launch.sql → semua role KECUALI MPP).
+            'dashboard_quick_launch_widget',
         ];
 
         $permissions = $this->getUserRoleManagerHelper()

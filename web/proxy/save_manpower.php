@@ -99,7 +99,7 @@ function parseAcumaticaDateTime($raw)
  * (bukan '-', bukan numerik), pakai nama owner case sebagai fallback supaya
  * UI tidak menampilkan ID mentah.
  */
-function resolveTaskOwnerName(array $task, ?string $caseOwnerName = null): string
+function resolveTaskOwnerName(array $task, ?string $caseOwnerName = null, ?PDO $pdo = null): string
 {
     $raw = $task['OwnerEmployeeName']['value'] ?? ($task['Owner']['value'] ?? '');
     $raw = is_scalar($raw) ? trim((string)$raw) : '';
@@ -107,12 +107,51 @@ function resolveTaskOwnerName(array $task, ?string $caseOwnerName = null): strin
         return '-';
     }
     if (preg_match('/^\d+$/', $raw)) {
+        // 1) Tabel mapping karyawan -> Owner Acumatica (paling akurat, 2026-11-23).
+        //    Sebelum ini nama owner task hanya dicari lewat Case?$filter=Owner eq '<id>',
+        //    sehingga user yang BELUM pernah jadi owner Case apa pun tidak ter-resolve
+        //    dan UI menampilkan nama owner CASE (fallback) — mis. task milik Syahdan
+        //    (316044) tampil sebagai NOVA SUSETYOHARSI karena dia owner Case-nya.
+        $mapped = acumaticaOwnerNameFromMapping($pdo, $raw);
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        // 2) Fallback lama: nama owner Case.
         $fb = trim((string)$caseOwnerName);
         if ($fb !== '' && $fb !== '-' && !preg_match('/^\d+$/', $fb)) {
             return $fb;
         }
     }
     return $raw;
+}
+
+/**
+ * Nama owner Acumatica dari tabel cache lokal ohrm_employee_acumatica_owner.
+ * Return null kalau tabel belum ada / ID tidak terdaftar (pemanggil lanjut ke fallback).
+ */
+function acumaticaOwnerNameFromMapping(?PDO $pdo, string $ownerId): ?string
+{
+    static $cache = [];
+    if (!$pdo instanceof PDO || $ownerId === '') {
+        return null;
+    }
+    if (array_key_exists($ownerId, $cache)) {
+        return $cache[$ownerId];
+    }
+    $cache[$ownerId] = null;
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT owner_name FROM ohrm_employee_acumatica_owner WHERE owner_id = :oid LIMIT 1"
+        );
+        $stmt->execute([':oid' => $ownerId]);
+        $nm = $stmt->fetchColumn();
+        if (is_string($nm) && trim($nm) !== '') {
+            $cache[$ownerId] = trim($nm);
+        }
+    } catch (\Throwable $e) {
+        // tabel mapping belum dibuat / DB error → jangan gagalkan sync
+    }
+    return $cache[$ownerId];
 }
 
 /**
@@ -324,7 +363,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                         ':case_id' => $case['caseId'],
                         ':task_id' => $task['NoteID']['value'] ?? '-',
                         ':summary' => $task['Summary']['value'] ?? '-',
-                        ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null),
+                        ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
                         ':priority' => $task['Priority']['value'] ?? '-',
                         ':status' => $task['Status']['value'] ?? '-',
                         ':approval_date' => parseAcumaticaDateTime($task['CompletedAt']['value'] ?? null)
@@ -337,7 +376,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                                                 ':case_id' => $case['caseId'],
                                                 ':task_id' => $task['NoteID']['value'] ?? '-',
                                                 ':summary' => $task['Summary']['value'] ?? '-',
-                                                ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null),
+                                                ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
                                                 ':priority' => $task['Priority']['value'] ?? '-',
                                                 ':status' => $task['Status']['value'] ?? '-',
                                             ]);
@@ -405,7 +444,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                             ':case_id' => $auCaseId,
                             ':task_id' => $task['NoteID']['value'] ?? '-',
                             ':summary' => $task['Summary']['value'] ?? '-',
-                            ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null),
+                            ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
                             ':priority' => $task['Priority']['value'] ?? '-',
                             ':status' => $task['Status']['value'] ?? '-',
                             ':approval_date' => parseAcumaticaDateTime($task['CompletedAt']['value'] ?? null)
@@ -417,7 +456,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                                                         ':case_id' => $auCaseId,
                                                         ':task_id' => $task['NoteID']['value'] ?? '-',
                                                         ':summary' => $task['Summary']['value'] ?? '-',
-                                                        ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null),
+                                                        ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
                                                         ':priority' => $task['Priority']['value'] ?? '-',
                                                         ':status' => $task['Status']['value'] ?? '-',
                                                     ]);

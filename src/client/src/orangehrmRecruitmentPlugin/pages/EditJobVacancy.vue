@@ -500,13 +500,18 @@ export default {
         this.vacancy.caseId = data.caseId || '';
         this.vacancy.reqType =
           this.reqTypeOptions.find((opt) => opt.id === data.reqType) || null;
-        this.vacancy.hiringManager = data.hiringManager.id
+        // Hiring Manager boleh kosong (NULL) — mis. sync FPTK tidak menemukan
+        // nama Owner Acumatica yang cocok. Jangan akses data.hiringManager.id
+        // langsung: kalau null, halaman Edit blank karena TypeError.
+        this.vacancy.hiringManager = data.hiringManager?.id
           ? {
               id: data.hiringManager.id,
-              label: `${data.hiringManager.firstName} ${data.hiringManager.middleName} ${data.hiringManager.lastName}`,
+              label: `${data.hiringManager.firstName} ${
+                data.hiringManager.middleName ?? ''
+              } ${data.hiringManager.lastName}`,
               isPastEmployee: data.hiringManager.terminationId ? true : false,
             }
-          : this.$t('general.deleted');
+          : null;
         this.vacancy.jobTitle = data.jobTitle.isDeleted
           ? null
           : {
@@ -550,7 +555,7 @@ export default {
         id: this.vacancyId,
         name: this.vacancy.name,
         jobTitleId: this.vacancy.jobTitle.id,
-        employeeId: this.vacancy.hiringManager.id,
+        employeeId: this.vacancy.hiringManager?.id ?? null,
         numOfPositions: this.vacancy.numOfPositions
           ? parseInt(this.vacancy.numOfPositions)
           : null,

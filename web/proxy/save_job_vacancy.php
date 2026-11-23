@@ -48,11 +48,10 @@ try {
         LIMIT 1
     ");
 
-    // MENGAMBIL 1 KARYAWAN ACAK SEBAGAI CADANGAN JIKA ACUMATICA GAGAL MATCH
-    $stmtFallback = $pdo->prepare("SELECT emp_number FROM hs_hr_employee LIMIT 1");
-    $stmtFallback->execute();
-    $fallbackData = $stmtFallback->fetch(PDO::FETCH_ASSOC);
-    $fallbackManagerId = $fallbackData ? $fallbackData['emp_number'] : null;
+    // TIDAK ADA CADANGAN (revisi 2026-11-23): kalau nama Owner Acumatica tidak
+    // ketemu di hs_hr_employee, hiring_manager_id DIBIARKAN NULL. Sebelumnya
+    // dipakai "karyawan pertama" (SELECT ... LIMIT 1) sehingga vacancy bisa
+    // dapat hiring manager acak saat ejaan nama di Acumatica berbeda.
 
     $stmtInsert = $pdo->prepare("
         INSERT INTO ohrm_job_vacancy (
@@ -148,13 +147,13 @@ try {
                 // KETEMU!
                 $managerId = $mgrResult['emp_number'];
             } else {
-                // GAGAL KETEMU! Catat teksnya dan pakai nama cadangan
+                // GAGAL KETEMU! Catat teksnya, hiring manager dibiarkan NULL
                 $unmatchedManagers[] = $cleanText;
-                $managerId = $fallbackManagerId;
+                $managerId = null;
             }
         } else {
-            // JIKA ACUMATICA MENGIRIM KOSONG ATAU "-", PAKAI CADANGAN
-            $managerId = $fallbackManagerId;
+            // JIKA ACUMATICA MENGIRIM KOSONG ATAU "-", hiring manager NULL
+            $managerId = null;
         }
 
         // --- 4. EKSEKUSI INSERT ---
@@ -189,7 +188,7 @@ try {
     if (count($unmatchedManagers) > 0) {
         $unik = array_unique($unmatchedManagers);
         // Tambahkan bocoran teks Acumatica ke pesan Alert
-        $msg .= " INFO: Teks ini dari Acumatica [" . implode(", ", $unik) . "] gagal ditemukan di Employee OrangeHRM, sistem menggunakan Manager Cadangan.";
+        $msg .= " INFO: Teks ini dari Acumatica [" . implode(", ", $unik) . "] gagal ditemukan di Employee OrangeHRM, Hiring Manager dibiarkan kosong (NULL) — isi manual di menu Edit Job Vacancy.";
     }
     $openMsg = '';
     if (!empty($openApprovals)) {

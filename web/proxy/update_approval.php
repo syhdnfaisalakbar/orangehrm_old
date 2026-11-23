@@ -65,9 +65,14 @@ try {
     // Pastikan semua baris ada (optional check; lompat baris yang tak ditemukan)
     $newStatus  = $decision === 'approve' ? 'Disetujui' : 'Ditolak';
     $reasonVal  = $decision === 'reject' ? $reason : null;
+    // Reject = buka kunci (permintaan Pak 2026-11-17): `submitted` direset 0
+    // supaya baris yang ditolak bisa diperbaiki lalu diajukan ulang. Approve
+    // tetap terkunci (submitted = 1). Tanpa ini sel tetap disabled walau sudah
+    // ditolak, sehingga nilai tidak bisa dikoreksi.
     $upd = $pdo->prepare("UPDATE ohrm_kpi_realisasi
         SET approval_status = ?, approved_by = ?, approved_at = NOW(),
-            reject_reason = ?
+            reject_reason = ?,
+            submitted = IF(? = 'Ditolak', 0, submitted)
         WHERE id = ?");
     $n = 0;
     $getRow = $pdo->prepare("SELECT setup_id, divisi, periode, realisasi, skor FROM ohrm_kpi_realisasi WHERE id = ?");
@@ -77,7 +82,7 @@ try {
     foreach ($ids as $id) {
         $getRow->execute([$id]);
         $row = $getRow->fetch(PDO::FETCH_ASSOC);
-        $upd->execute([$newStatus, $emp, $reasonVal, $id]);
+        $upd->execute([$newStatus, $emp, $reasonVal, $newStatus, $id]);
         $n += $upd->rowCount();
         if ($row) {
             $log->execute([

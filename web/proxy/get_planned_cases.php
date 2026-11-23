@@ -21,7 +21,7 @@ try {
             q.note_id,
             MAX(CASE WHEN UPPER(a.attribute_name) = 'DEPARTMENT' THEN a.attribute_value END) as department,
             MAX(CASE WHEN UPPER(a.attribute_name) = 'POSITION' THEN a.attribute_value END) as position,
-            MAX(CASE WHEN UPPER(a.attribute_name) = 'TOTPERSON' THEN a.attribute_value END) as total_person
+            MAX(CASE WHEN UPPER(a.attribute_name) IN ('TOTPERSON', 'TOTPERSONN') THEN a.attribute_value END) as total_person
         FROM ohrm_quota_requests q
         LEFT JOIN ohrm_case_attributes a ON q.note_id = a.ref_note_id
         GROUP BY q.case_id, q.note_id

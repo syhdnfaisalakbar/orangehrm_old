@@ -110,8 +110,8 @@
       <div
         style="
           background-color: #ffffff;
-          width: 650px;
-          max-width: 95%;
+          width: 1400px;
+          max-width: 96vw;
           max-height: 90vh;
           border-radius: 8px;
           box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
@@ -164,44 +164,40 @@
           >
             Case Attributes
           </h6>
-          <table
-            class="oxd-table"
-            style="
-              width: 100%;
-              margin-bottom: 25px;
-              border: 1px solid #e2e8f0;
-              border-radius: 4px;
-            "
+          <!-- TABEL KE SAMPING (2026-11-23): nama atribut jadi header kolom,
+               nilainya di baris bawah. Styling lewat class .fptk-attr-table. -->
+          <div
+            v-if="selectedCase?.attributes?.length > 0"
+            class="fptk-attr-wrap"
           >
-            <tbody v-if="selectedCase?.attributes?.length > 0">
-              <tr
-                v-for="(attr, index) in selectedCase.attributes"
-                :key="index"
-                style="border-bottom: 1px solid #e2e8f0"
-              >
-                <td
-                  style="
-                    padding: 10px;
-                    font-weight: bold;
-                    width: 40%;
-                    background-color: #f8fafc;
-                  "
-                >
-                  {{ attr.AttributeID?.value || '-' }}
-                </td>
-                <td style="padding: 10px">
-                  {{ attr.ValueDescription?.value || attr.Value?.value || '-' }}
-                </td>
-              </tr>
-            </tbody>
-            <tbody v-else>
-              <tr>
-                <td style="padding: 10px; text-align: center; color: #64748b">
-                  Tidak ada atribut untuk Case ini.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+            <table class="fptk-attr-table">
+              <thead>
+                <tr>
+                  <th
+                    v-for="(attr, index) in selectedCase.attributes"
+                    :key="'h' + index"
+                  >
+                    {{ attr.AttributeID?.value || '-' }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td
+                    v-for="(attr, index) in selectedCase.attributes"
+                    :key="'v' + index"
+                  >
+                    {{
+                      attr.ValueDescription?.value || attr.Value?.value || '-'
+                    }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="fptk-attr-empty">
+            Tidak ada atribut untuk Case ini.
+          </p>
 
           <!-- Bagian 2: Approval Tasks -->
           <h6
@@ -218,122 +214,32 @@
             Memuat data Approval...
           </div>
 
-          <template v-if="approvalTasks.length > 0">
-            <div
-              v-for="(task, index) in approvalTasks"
-              :key="index"
-              style="margin-bottom: 15px"
-            >
-              <div
-                v-if="approvalTasks.length > 1"
-                style="
-                  font-size: 12px;
-                  color: #64748b;
-                  margin-bottom: 5px;
-                  font-weight: bold;
-                "
-              >
-                Task {{ index + 1 }}
-              </div>
-              <table
-                class="oxd-table"
-                style="
-                  width: 100%;
-                  border: 1px solid #e2e8f0;
-                  border-radius: 4px;
-                "
-              >
-                <tbody>
-                  <tr style="border-bottom: 1px solid #e2e8f0">
-                    <td
-                      style="
-                        padding: 10px;
-                        font-weight: bold;
-                        width: 40%;
-                        background-color: #f8fafc;
-                      "
-                    >
-                      Summary
-                    </td>
-                    <td style="padding: 10px">
-                      {{ task.Summary?.value || '-' }}
-                    </td>
-                  </tr>
-                  <tr style="border-bottom: 1px solid #e2e8f0">
-                    <td
-                      style="
-                        padding: 10px;
-                        font-weight: bold;
-                        width: 40%;
-                        background-color: #f8fafc;
-                      "
-                    >
-                      Owner
-                    </td>
-                    <td style="padding: 10px">
-                      {{ getTaskOwnerName(task) }}
-                    </td>
-                  </tr>
-                  <tr style="border-bottom: 1px solid #e2e8f0">
-                    <td
-                      style="
-                        padding: 10px;
-                        font-weight: bold;
-                        width: 40%;
-                        background-color: #f8fafc;
-                      "
-                    >
-                      Priority
-                    </td>
-                    <td style="padding: 10px">
-                      {{ task.Priority?.value || '-' }}
-                    </td>
-                  </tr>
-                  <tr style="border-bottom: 1px solid #e2e8f0">
-                    <td
-                      style="
-                        padding: 10px;
-                        font-weight: bold;
-                        width: 40%;
-                        background-color: #f8fafc;
-                      "
-                    >
-                      Status
-                    </td>
-                    <td style="padding: 10px">
-                      <span
-                        style="
-                          background-color: #e6f4ea;
-                          color: #1e8e3e;
-                          padding: 2px 8px;
-                          border-radius: 12px;
-                          font-size: 12px;
-                          font-weight: bold;
-                        "
-                      >
-                        {{ task.Status?.value || '-' }}
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td
-                      style="
-                        padding: 10px;
-                        font-weight: bold;
-                        width: 40%;
-                        background-color: #f8fafc;
-                      "
-                    >
-                      Completed On
-                    </td>
-                    <td style="padding: 10px">
-                      {{ formatApprovalDate(task.ApprovalDate?.value) }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </template>
+          <div v-if="approvalTasks.length > 0" class="fptk-attr-wrap">
+            <table class="fptk-attr-table">
+              <thead>
+                <tr>
+                  <th>Summary</th>
+                  <th>Owner</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Completed On</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(task, index) in approvalTasks" :key="index">
+                  <td>{{ task.Summary?.value || '-' }}</td>
+                  <td>{{ getTaskOwnerName(task) }}</td>
+                  <td>{{ task.Priority?.value || '-' }}</td>
+                  <td>
+                    <span class="fptk-status-pill">
+                      {{ task.Status?.value || '-' }}
+                    </span>
+                  </td>
+                  <td>{{ formatApprovalDate(task) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <div v-else style="padding: 10px; text-align: center; color: #64748b">
             Tidak ada Approval Task yang Open.
           </div>
@@ -842,11 +748,36 @@ export default {
         // 1a. Bangun summary dari data LOKAL (semua HRPLAN yang sudah ada di
         //     DB) supaya total_additional TIDAK mengecil saat hanya case baru
         //     yang ditarik (save_quota.php overwrite total_additional penuh).
-        const localAttr = (item, attrId) => {
-          const searchId = attrId.toLowerCase();
-          const found = (item.attributes || []).find(
-            (a) => a.AttributeID?.value?.toLowerCase() === searchId,
+        // LOOKUP TOLERAN (2026-11-23): AttributeID di Acumatica bisa di-rename
+        // (mis. TOTPERSON -> TOTPERSONN). Urutan: exact -> alias -> prefix.
+        // Dipakai untuk data lokal (attribute_name dari DB) DAN data live.
+        const normAttr = (v) =>
+          String(v ?? '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '');
+        const ATTR_ALIASES = {totperson: ['totpersonn']};
+        const findAttr = (list, attrId) => {
+          const searchId = normAttr(attrId);
+          let found = list.find(
+            (a) => normAttr(a.AttributeID?.value) === searchId,
           );
+          if (!found) {
+            const aliases = ATTR_ALIASES[searchId] || [];
+            found = list.find((a) => {
+              const id = normAttr(a.AttributeID?.value);
+              return id !== '' && aliases.some((al) => normAttr(al) === id);
+            });
+          }
+          if (!found) {
+            found = list.find((a) => {
+              const id = normAttr(a.AttributeID?.value);
+              return id !== '' && id.startsWith(searchId);
+            });
+          }
+          return found;
+        };
+        const localAttr = (item, attrId) => {
+          const found = findAttr(item.attributes || [], attrId);
           return found
             ? found.ValueDescription?.value || found.Value?.value || null
             : null;
@@ -877,10 +808,7 @@ export default {
 
           // Fungsi bantu untuk mengambil nilai dari Attributes
           const getAttrValue = (attrId) => {
-            const searchId = attrId.toLowerCase();
-            const found = attributes.find(
-              (a) => a.AttributeID?.value?.toLowerCase() === searchId,
-            );
+            const found = findAttr(attributes, attrId);
             return found
               ? found.ValueDescription?.value || found.Value?.value
               : null;
@@ -1394,5 +1322,67 @@ export default {
 }
 .oxd-btn--loading .oxd-icon.bi-arrow-repeat {
   animation: oxd-icon-spin 0.8s linear infinite;
+}
+/* Tabel Case Attributes ke samping (modal detail FPTK & Quota Request).
+   Gaya teks ikut tabel standar aplikasi: header 12px kapital abu-abu,
+   nilai 14px normal. Nilai hanya dipatahkan di spasi, bukan di tengah kata. */
+.fptk-attr-wrap {
+  overflow-x: auto;
+  margin-bottom: 25px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background-color: #fff;
+}
+.fptk-attr-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+.fptk-attr-table th {
+  padding: 10px 12px;
+  background-color: #f8fafc;
+  border-left: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #64728c;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: left;
+  white-space: nowrap;
+}
+.fptk-attr-table td {
+  padding: 10px 12px;
+  border-left: 1px solid #f1f5f9;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #1f2937;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+}
+.fptk-attr-table th:first-child,
+.fptk-attr-table td:first-child {
+  border-left: none;
+}
+.fptk-attr-empty {
+  padding: 10px;
+  text-align: center;
+  color: #64748b;
+  margin-bottom: 25px;
+}
+.fptk-status-pill {
+  display: inline-block;
+  background-color: #e6f4ea;
+  color: #1e8e3e;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 </style>

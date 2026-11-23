@@ -100,9 +100,19 @@ class MenuService
      * urutan di daftar. Role lain tidak terpengaruh.
      *
      * Permintaan Pak (2026-11-13): role ESS → hanya Dashboard lalu Performance.
+     * Permintaan Pak (2026-11-23): role MPP → 7 menu berikut, dengan urutan ini.
      */
     private const ROLE_SIDE_PANEL_MENU = [
         'ESS' => ['Dashboard', 'Performance'],
+        'MPP' => [
+            'Dashboard',
+            'Manpower Request (FPTK)',
+            'Recruitment',
+            'Resource Fulfillments',
+            'Quota Request',
+            'History Quota Department',
+            'Unplanned Request Report',
+        ],
     ];
 
     /**

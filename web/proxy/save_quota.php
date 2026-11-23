@@ -140,6 +140,17 @@ try {
                     $attrName = $attr['AttributeID']['value'] ?? '';
                     $attrVal  = $attr['ValueDescription']['value'] ?? $attr['Value']['value'] ?? '';
 
+                    // NAMA KANONIK (2026-11-23): Acumatica bisa me-rename AttributeID
+                    // (mis. TOTPERSON -> TOTPERSONN). Query kuota di repo ini memakai
+                    // nama kanonik 'TOTPERSON', jadi normalisasi saat simpan supaya
+                    // get_all_quota.php / _quota_approved.php / get_planned_cases.php
+                    // tidak diam-diam menghasilkan 0.
+                    $attrKey = strtoupper(preg_replace('/[^a-z0-9]/i', '', (string) $attrName));
+                    $attrCanonical = ['TOTPERSONN' => 'TOTPERSON'];
+                    if (isset($attrCanonical[$attrKey])) {
+                        $attrName = $attrCanonical[$attrKey];
+                    }
+
                     if ($attrName) {
                         $stmtAttr->execute([
                             ':ref_note_id' => $noteId,
