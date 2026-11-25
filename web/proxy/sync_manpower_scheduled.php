@@ -427,6 +427,26 @@ try {
     out('[sync-manpower] SIMPAN: ' . ($result['message'] ?? ''));
 
     // ============================================================
+    // 7b. SEGARKAN CACHE NAMA OWNER (OwnerID Acumatica -> nama)
+    //     Butuh entity/Generic Inquiry yang menyediakan pasangan ID+nama.
+    //     Kalau 'owner_lookup.entity' di config.php masih kosong, fungsi ini
+    //     mengembalikan status 'disabled' dan tidak mengubah apa pun.
+    // ============================================================
+    try {
+        require_once __DIR__ . '/_acumatica_owner_lookup.php';
+        // Harvest Case/Lead/Opportunity/Contact (throttle 12 jam) — sumber nama
+        // owner yang bisa dipakai tanpa entity/GI user dari IT.
+        $harvest = acumaticaOwnerNamesHarvest($pdo, $cookie);
+        logRun('Harvest nama owner: ' . ($harvest['status'] ?? '?') . ' | ' . ($harvest['message'] ?? ''));
+        out('[sync-manpower] Harvest nama owner: ' . ($harvest['message'] ?? ''));
+        $ownerSync = acumaticaOwnerNamesSync($pdo, $cookie);
+        logRun('Owner name cache: ' . ($ownerSync['status'] ?? '?') . ' | ' . ($ownerSync['message'] ?? ''));
+        out('[sync-manpower] Owner name cache: ' . ($ownerSync['message'] ?? ''));
+    } catch (\Throwable $e) {
+        logRun('Owner name cache gagal (best-effort): ' . $e->getMessage());
+    }
+
+    // ============================================================
     // 8. LOGOUT
     // ============================================================
     try {

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_acumatica_owner_lookup.php';
 header('Content-Type: application/json');
 
 // 1. KONEKSI DATABASE
@@ -30,7 +31,7 @@ try {
     // 3b. AMBIL APPROVAL TASK TERAKHIR per case (dipakai filter Status Approval
     // + aturan checkbox delete yang hanya boleh untuk task Open)
     $stmtLastApproval = $pdo->prepare(
-        "SELECT summary, owner, priority, status, approval_date
+        "SELECT summary, owner, owner_id, priority, status, approval_date
          FROM ohrm_manpower_approval
          WHERE case_id = :case_id
          ORDER BY id DESC
@@ -43,7 +44,7 @@ try {
     // (baris jadi '-'), tapi tetap disimpan di lastApproval supaya filter
     // Status Approval dan logika delete (butuh status Open) tidak rusak.
     $stmtCompletedApproval = $pdo->prepare(
-        "SELECT summary, owner, priority, status, approval_date
+        "SELECT summary, owner, owner_id, priority, status, approval_date
          FROM ohrm_manpower_approval
          WHERE case_id = :case_id
            AND UPPER(TRIM(COALESCE(status, ''))) = 'COMPLETED'
@@ -115,10 +116,26 @@ try {
         }
 
         // --- Kolom "Owner" = owner APPROVAL TASK, bukan owner case ---
-        // Permintaan Pak (2026-11-06): kolom Owner harus membaca owner approval
-        // task. Urutan sumber: task Completed terakhir → task terakhir → owner
-        // case (fallback kalau case belum punya task sama sekali).
+        // Urutan sumber: task Completed terakhir → task terakhir → owner
+        // case (fallback HANYA kalau case belum punya task sama sekali).
         // Nilai '-' / kosong dianggap tidak ada.
+        // owner_id = Owner ID mentah Acumatica (kolom baru 2026-11-25) — dipakai
+        // untuk menerjemahkan nama ulang tanpa sync.
+        $ownerIdCandidates = [
+            $completedApprovalRow['owner_id'] ?? null,
+            $lastApprovalRow['owner_id'] ?? null,
+        ];
+        $displayOwnerId = '';
+        foreach ($ownerIdCandidates as $ownerIdCandidate) {
+            if (!is_scalar($ownerIdCandidate)) {
+                continue;
+            }
+            $ownerIdCandidate = trim((string) $ownerIdCandidate);
+            if ($ownerIdCandidate !== '' && preg_match('/^\d+$/', $ownerIdCandidate)) {
+                $displayOwnerId = $ownerIdCandidate;
+                break;
+            }
+        }
         $ownerCandidates = [
             $completedApprovalRow['owner'] ?? null,
             $lastApprovalRow['owner'] ?? null,
@@ -136,6 +153,29 @@ try {
             }
         }
 
+        // --- Resolusi nama owner (rev 2026-11-25) ---
+        // Acumatica Task hanya mengirim Owner sebagai ID numerik. Nama dicari di
+        // cache ohrm_acumatica_owner_name (hasil harvest Case/Lead/Opportunity/
+        // Contact + seed manual) lalu tabel mapping karyawan. Kalau belum
+        // diketahui → tampilkan ID apa adanya (keputusan Pak), JANGAN meminjam
+        // nama owner Case: owner task dan owner case bisa dua orang berbeda
+        // (task 0000008730 milik Indra Maulana Rizky, owner case NOVA).
+        if ($displayOwnerId === '' && preg_match('/^\d+$/', (string) $displayOwner)) {
+            $displayOwnerId = (string) $displayOwner;
+        }
+        if ($displayOwnerId !== '') {
+            try {
+                $resolvedOwnerName = acumaticaOwnerNameResolve($pdo, $displayOwnerId);
+                if ($resolvedOwnerName !== null) {
+                    $displayOwner = $resolvedOwnerName;
+                } else {
+                    $displayOwner = $displayOwnerId;
+                }
+            } catch (Throwable $e) {
+                // tabel cache/mapping belum ada -> biarkan apa adanya
+            }
+        }
+
         // --- Gabungkan Semuanya ---
         $formattedData[] = [
                     'id' => $row['id'],
@@ -148,12 +188,15 @@ try {
                     'subject' => $row['subject'],
                     'reason' => $row['reason'],
                     'owner' => $displayOwner,
+                    // Owner ID mentah Acumatica (null kalau case belum punya task)
+                    'ownerId' => $displayOwnerId !== '' ? $displayOwnerId : null,
                     'reqType' => $row['req_type'] ?? '-',
 
                     // Approval Task TERAKHIR — dipakai filter Status Approval + checkbox delete
                     'lastApproval' => $lastApprovalRow ? [
                 'summary'       => $lastApprovalRow['summary'] ?? '-',
                 'owner'         => $lastApprovalRow['owner'] ?? '-',
+                'owner_id'      => $lastApprovalRow['owner_id'] ?? null,
                 'priority'      => $lastApprovalRow['priority'] ?? '-',
                 'status'        => $lastApprovalRow['status'] ?? '-',
                 'approval_date' => $lastApprovalRow['approval_date'] ?? null,
@@ -164,6 +207,7 @@ try {
                     'completedApproval' => $completedApprovalRow ? [
                 'summary'       => $completedApprovalRow['summary'] ?? '-',
                 'owner'         => $completedApprovalRow['owner'] ?? '-',
+                'owner_id'      => $completedApprovalRow['owner_id'] ?? null,
                 'priority'      => $completedApprovalRow['priority'] ?? '-',
                 'status'        => $completedApprovalRow['status'] ?? '-',
                 'approval_date' => $completedApprovalRow['approval_date'] ?? null,

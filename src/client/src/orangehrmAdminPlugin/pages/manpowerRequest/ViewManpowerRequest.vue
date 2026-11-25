@@ -485,6 +485,11 @@ export default {
       isLoadingTasks: false, // Efek loading saat tarik data Approval
       selectedCase: null, // Menyimpan data case yang sedang di-klik
       approvalTasks: [], // Menyimpan daftar approval dari Acumatica
+      // Peta OwnerID Acumatica -> nama (get_acumatica_owner_names.php).
+      // Dipakai untuk menerjemahkan Owner Task yang dikirim Acumatica sebagai
+      // angka. TIDAK memakai nama owner Case (bisa orang berbeda).
+      ownerNameMap: {},
+      ownerNamesLoaded: false,
       // --- STATE UNTUK MODAL HISTORY APPROVAL TASK ---
       showHistoryModal: false,
       historyCase: null,
@@ -1130,54 +1135,18 @@ export default {
           ...a,
         }));
 
-        // --- 2c. RESOLUSI NAMA OWNER TASK (2026-09-14) ---
-        // Acumatica Task API TIDAK mengirim nama owner (OwnerEmployeeName/OwnerName
-        // kosong), cuma ID numerik (mis. 316044). Resolusi: cari Case dengan
-        // Owner eq '<id>' → baca OwnerEmployeeName → simpan nama asli ke task,
-        // supaya kolom Owner tampil benar (bukan fallback owner case).
-        const ownerIdMap = new Map();
-        const collectOwners = (arr) =>
-          (arr || []).forEach((c) =>
-            (c.approvals || []).forEach((t) => {
-              const raw = t.OwnerEmployeeName?.value || t.Owner?.value;
-              if (/^\d+$/.test(String(raw || '')))
-                ownerIdMap.set(String(raw), null);
-            }),
-          );
-        collectOwners(casesWithApprovals);
-        collectOwners(mergedApprovalUpdates);
-
-        await Promise.all(
-          [...ownerIdMap.keys()].map(async (oid) => {
-            try {
-              const res = await fetch(
-                baseUrl +
-                  '/proxy/acumatica.php?action=query&endpoint=Case&$filter=' +
-                  encodeURIComponent(`Owner eq '${oid}'`),
-              );
-              const data = await res.json();
-              const list = Array.isArray(data) ? data : data.value || [];
-              const c =
-                list.find((x) => String(x.Owner?.value) === oid) || list[0];
-              const nm = c && c.OwnerEmployeeName?.value;
-              ownerIdMap.set(oid, nm ? this.formatName(nm) : null);
-            } catch (err) {
-              console.warn('Gagal resolve owner task', oid, err);
-              ownerIdMap.set(oid, null);
-            }
-          }),
-        );
-
+        // --- 2c. TERJEMAHKAN OWNER TASK (rev 2026-11-25) ---
+        // Acumatica Task hanya mengirim Owner sebagai ID numerik (mis. 202263).
+        // Nama diambil dari peta lokal hasil harvest Case/Lead/Opportunity/Contact
+        // + seed manual (get_acumatica_owner_names.php) — BUKAN dari owner Case:
+        // owner task dan owner case bisa dua orang berbeda (task "Approval" case
+        // 0000008730 milik Indra Maulana Rizky, owner case NOVA SUSETYOHARSI).
+        // Kalau belum terpetakan, angka dibiarkan apa adanya; backend
+        // save_manpower.php menyimpannya sebagai owner_id lalu menerjemahkan lagi
+        // saat dibaca, jadi mengisi mapping belakangan tetap memperbaiki tampilan.
+        await this.loadOwnerNames();
         const injectOwners = (arr) =>
-          (arr || []).forEach((c) =>
-            (c.approvals || []).forEach((t) => {
-              const raw = t.OwnerEmployeeName?.value || t.Owner?.value;
-              if (/^\d+$/.test(String(raw || ''))) {
-                const nm = ownerIdMap.get(String(raw));
-                if (nm) t.OwnerEmployeeName = {value: nm};
-              }
-            }),
-          );
+          (arr || []).forEach((c) => this.applyOwnerNameMap(c.approvals));
         injectOwners(casesWithApprovals);
         injectOwners(mergedApprovalUpdates);
 
@@ -1341,15 +1310,20 @@ export default {
       }
     },
 
-    onClickDetail(item) {
+    async onClickDetail(item) {
       console.log('Membuka detail untuk:', item);
 
       this.selectedCase = item;
       this.showModal = true;
 
+      // Terjemahkan Owner Task numerik -> nama (peta lokal) sebelum ditampilkan.
+      await this.loadOwnerNames();
+
       // Ambil approval dengan ApprovalDate terbaru (paling akhir Completed).
       // Jika ada beberapa approval task, tampilkan hanya satu yang terakhir.
-      const allApprovals = (item && item.approvals) || [];
+      const allApprovals = this.applyOwnerNameMap([
+        ...((item && item.approvals) || []),
+      ]);
       if (allApprovals.length > 0) {
         const sorted = [...allApprovals].sort((a, b) => {
           const da = a.ApprovalDate?.value || a.CompletedAt?.value || '';
@@ -1434,17 +1408,54 @@ export default {
         task.Owner?.value ||
         '-';
 
-      if (ownerValue === '164' || ownerValue === 164) {
-        return 'Andrew Colin Chandra';
-      }
-
-      // Jika Owner berupa ID numerik (Acumatica Task tidak mengirim nama),
-      // gunakan nama owner dari Case sebagai fallback (pola sama dgn QuotaRequest)
+      // Owner Task dikirim Acumatica sebagai ID numerik. Terjemahkan lewat peta
+      // lokal (ohrm_acumatica_owner_name + mapping karyawan). Kalau belum
+      // terpetakan → tampilkan angka apa adanya (keputusan Pak 2026-11-25),
+      // JANGAN meminjam nama owner Case: itu bisa orang yang berbeda.
       if (/^\d+$/.test(String(ownerValue))) {
-        return this.selectedCase?.owner || String(ownerValue);
+        const known = this.ownerNameMap?.[String(ownerValue)];
+        return known ? this.formatName(known) : String(ownerValue);
       }
 
       return this.formatName(ownerValue);
+    },
+
+    // Muat peta OwnerID Acumatica -> nama (sekali per halaman).
+    async loadOwnerNames(force = false) {
+      if (this.ownerNamesLoaded && !force) {
+        return this.ownerNameMap;
+      }
+      try {
+        const res = await fetch(
+          this.getBaseUrl() + '/proxy/get_acumatica_owner_names.php',
+          {method: 'GET', headers: {Accept: 'application/json'}},
+        );
+        const data = await res.json();
+        this.ownerNameMap = (data && data.data) || {};
+        this.ownerNamesLoaded = true;
+      } catch (err) {
+        console.warn('Gagal memuat peta nama owner Acumatica', err);
+      }
+      return this.ownerNameMap;
+    },
+
+    // Timpa Owner numerik pada daftar task dengan nama yang diketahui.
+    applyOwnerNameMap(tasks) {
+      (tasks || []).forEach((t) => {
+        if (!t) return;
+        const raw =
+          t.OwnerEmployeeName?.value ||
+          t.OwnerName?.value ||
+          t.Owner?.value ||
+          '';
+        if (/^\d+$/.test(String(raw))) {
+          const known = this.ownerNameMap?.[String(raw)];
+          if (known) {
+            t.OwnerEmployeeName = {value: this.formatName(known)};
+          }
+        }
+      });
+      return tasks;
     },
 
     formatApprovalDate(task) {

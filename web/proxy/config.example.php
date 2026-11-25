@@ -32,6 +32,20 @@ return [
         'login_user' => 'ISI_USER_ACUMATICA',
         'login_pass' => 'ISI_PASSWORD_ACUMATICA',
         'company'    => 'ISI_COMPANY_ACUMATICA',
+
+        // Terjemahan OwnerID Acumatica -> nama user (kolom Owner di menu FPTK).
+        // API Default/25.200.001 tidak mengekspos entity Users; Owner pada Task
+        // hanya berisi ID (mis. "202263"). Isi 'entity' dengan entity/Generic
+        // Inquiry yang memuat pasangan (ID, nama) setelah IT menyediakannya,
+        // lalu jalankan web/proxy/sync_acumatica_owner_names.php.
+        // Contoh: 'entity' => 'Users', 'id_field' => 'OwnerID',
+        //         'name_field' => 'DisplayName'
+        // Kosong = fitur mati.
+        'owner_lookup' => [
+            'entity'     => '',
+            'id_field'   => 'OwnerID',
+            'name_field' => 'DisplayName',
+        ],
     ],
 
     'google_sso' => [

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/_config.php';
 require_once __DIR__ . '/_quota_approved.php';
+require_once __DIR__ . '/_acumatica_owner_lookup.php';
 //
 // save_manpower.php
 //
@@ -86,18 +87,36 @@ function parseAcumaticaDateTime($raw)
 }
 
 /**
- * Resolusi nama owner sebuah Task/Approval (2026-10-12).
+ * Owner ID mentah (numerik) sebuah Task Acumatica, atau null kalau tidak ada.
+ * Disimpan terpisah di kolom ohrm_manpower_approval.owner_id supaya nama bisa
+ * diterjemahkan ulang kapan saja (mapping/seed bertambah) TANPA sync ulang.
+ */
+function taskOwnerAcumaticaId(array $task): ?string
+{
+    $raw = $task['Owner']['value'] ?? '';
+    $raw = is_scalar($raw) ? trim((string)$raw) : '';
+    return $raw !== '' ? $raw : null;
+}
+
+/**
+ * Resolusi nama owner sebuah Task/Approval (rev 2026-11-25).
  *
  * Acumatica Task TIDAK punya field OwnerEmployeeName (request $select-nya
- * dijawab HTTP 500 "key not present in dictionary") — yang ada hanya Owner,
- * dan di instance staging isinya ID numerik (mis. "233") yang TIDAK selalu
- * bisa di-resolve: sudah diuji Case?$filter=Owner eq '233' -> 0 baris,
- * Contact?$filter=ContactID eq 233 -> 0 baris, entity Users/User -> 404
- * (tidak diekspos di endpoint Default/25.200.001).
+ * dijawab HTTP 500 "key not present in dictionary"); yang ada hanya Owner,
+ * berisi ID numerik (mis. "202263") yang tidak bisa dicari lewat nama/email.
  *
- * Karena itu: kalau owner masih murni numerik dan nama owner CASE diketahui
- * (bukan '-', bukan numerik), pakai nama owner case sebagai fallback supaya
- * UI tidak menampilkan ID mentah.
+ * Sumber nama (berurutan): cache ohrm_acumatica_owner_name -> tabel mapping
+ * karyawan ohrm_employee_acumatica_owner (lewat acumaticaOwnerNameResolve()).
+ *
+ * TIDAK ADA fallback ke nama owner Case (dihapus 2026-11-25). Owner Task dan
+ * owner Case adalah dua orang berbeda: task "Approval" case 0000008730 milik
+ * Indra Maulana Rizky (202263), sedangkan owner Case-nya NOVA SUSETYOHARSI (233).
+ * Fallback lama membuat kolom Owner menampilkan nama orang yang salah. Kalau ID
+ * belum bisa diterjemahkan, kembalikan ID apa adanya (keputusan Pak) supaya
+ * terlihat jelas bahwa mapping-nya belum ada — bukan menebak nama.
+ *
+ * @param string|null $caseOwnerName Tidak dipakai lagi; dipertahankan supaya
+ *                                   signature 4 call-site lama tidak berubah.
  */
 function resolveTaskOwnerName(array $task, ?string $caseOwnerName = null, ?PDO $pdo = null): string
 {
@@ -107,19 +126,9 @@ function resolveTaskOwnerName(array $task, ?string $caseOwnerName = null, ?PDO $
         return '-';
     }
     if (preg_match('/^\d+$/', $raw)) {
-        // 1) Tabel mapping karyawan -> Owner Acumatica (paling akurat, 2026-11-23).
-        //    Sebelum ini nama owner task hanya dicari lewat Case?$filter=Owner eq '<id>',
-        //    sehingga user yang BELUM pernah jadi owner Case apa pun tidak ter-resolve
-        //    dan UI menampilkan nama owner CASE (fallback) — mis. task milik Syahdan
-        //    (316044) tampil sebagai NOVA SUSETYOHARSI karena dia owner Case-nya.
-        $mapped = acumaticaOwnerNameFromMapping($pdo, $raw);
-        if ($mapped !== null) {
-            return $mapped;
-        }
-        // 2) Fallback lama: nama owner Case.
-        $fb = trim((string)$caseOwnerName);
-        if ($fb !== '' && $fb !== '-' && !preg_match('/^\d+$/', $fb)) {
-            return $fb;
+        $name = acumaticaOwnerNameResolve($pdo, $raw);
+        if ($name !== null) {
+            return $name;
         }
     }
     return $raw;
@@ -220,12 +229,13 @@ function saveManpowerPayload(PDO $pdo, array $data): array
         // ==========================================
         $stmtApproval = $pdo->prepare("
                 INSERT INTO ohrm_manpower_approval (
-                    case_id, task_id, summary, owner, priority, status, approval_date
+                    case_id, task_id, summary, owner, owner_id, priority, status, approval_date
                 ) VALUES (
-                    :case_id, :task_id, :summary, :owner, :priority, :status, :approval_date
+                    :case_id, :task_id, :summary, :owner, :owner_id, :priority, :status, :approval_date
                 ) ON DUPLICATE KEY UPDATE
                     summary = VALUES(summary),
                     owner = VALUES(owner),
+                    owner_id = VALUES(owner_id),
                     priority = VALUES(priority),
                     status = VALUES(status),
                     approval_date = VALUES(approval_date),
@@ -364,6 +374,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                         ':task_id' => $task['NoteID']['value'] ?? '-',
                         ':summary' => $task['Summary']['value'] ?? '-',
                         ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
+                        ':owner_id' => taskOwnerAcumaticaId($task),
                         ':priority' => $task['Priority']['value'] ?? '-',
                         ':status' => $task['Status']['value'] ?? '-',
                         ':approval_date' => parseAcumaticaDateTime($task['CompletedAt']['value'] ?? null)
@@ -445,6 +456,7 @@ function saveManpowerPayload(PDO $pdo, array $data): array
                             ':task_id' => $task['NoteID']['value'] ?? '-',
                             ':summary' => $task['Summary']['value'] ?? '-',
                             ':owner' => resolveTaskOwnerName($task, $caseOwnerFallbackName ?? null, $pdo),
+                            ':owner_id' => taskOwnerAcumaticaId($task),
                             ':priority' => $task['Priority']['value'] ?? '-',
                             ':status' => $task['Status']['value'] ?? '-',
                             ':approval_date' => parseAcumaticaDateTime($task['CompletedAt']['value'] ?? null)

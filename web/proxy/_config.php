@@ -57,6 +57,18 @@
     // Resolved, Rejected, Canceled, Abandoned, Duplicate.
     $define('ACUMATICA_REJECT_REASON', (string)($ac['reject_reason'] ?? 'Rejected'));
 
+    // Terjemahan OwnerID Task/Case Acumatica -> nama user.
+    // API Default/25.200.001 tidak mengekspos entity Users, jadi Owner pada task
+    // hanya berisi ID numerik (mis. "202263"). Kalau IT membuat entity/Generic
+    // Inquiry yang memuat pasangan (ID, nama), isi 'owner_lookup.entity' dan
+    // jalankan web/proxy/sync_acumatica_owner_names.php — hasilnya disimpan di
+    // tabel ohrm_acumatica_owner_name dan dipakai untuk menampilkan nama owner.
+    // Kosong = fitur mati (perilaku lama: ID mentah apa adanya).
+    $ownerLookup = (isset($ac['owner_lookup']) && is_array($ac['owner_lookup'])) ? $ac['owner_lookup'] : [];
+    $define('ACUMATICA_OWNER_LOOKUP_ENTITY', (string)($ownerLookup['entity'] ?? ''));
+    $define('ACUMATICA_OWNER_LOOKUP_ID_FIELD', (string)($ownerLookup['id_field'] ?? 'OwnerID'));
+    $define('ACUMATICA_OWNER_LOOKUP_NAME_FIELD', (string)($ownerLookup['name_field'] ?? 'DisplayName'));
+
     $gs = (isset($cfg['google_sso']) && is_array($cfg['google_sso'])) ? $cfg['google_sso'] : [];
     $define('GOOGLE_SSO_CLIENT_ID', (string)($gs['client_id'] ?? ''));
     $define('GOOGLE_SSO_CLIENT_SECRET', (string)($gs['client_secret'] ?? ''));
