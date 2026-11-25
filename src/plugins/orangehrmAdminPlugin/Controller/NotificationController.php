@@ -37,7 +37,15 @@ class NotificationController extends AbstractController implements PublicControl
                 'SELECT user_role_id FROM ohrm_user WHERE emp_number = ? AND deleted = 0 LIMIT 1',
                 [$authEmpNumber]
             )->fetchOne();
-            $isAdmin = ($authRoleId === 1);
+            $authRoleName = strtoupper((string) $conn->executeQuery(
+                'SELECT r.name FROM ohrm_user u JOIN ohrm_user_role r ON r.id = u.user_role_id
+                 WHERE u.emp_number = ? AND u.deleted = 0 LIMIT 1',
+                [$authEmpNumber]
+            )->fetchOne());
+            $isAdmin = ($authRoleName === 'ADMIN');
+            // Approver KPI = Admin + BOD (permintaan Pak 2026-11-24: approval edit
+            // indikator harus masuk ke role BOD, mis. andrew.colin).
+            $isKpiApprover = in_array($authRoleName, ['ADMIN', 'BOD'], true);
 
             // Param opsional: hanya tampilkan approval dengan ID > after_id
             $afterId = (int) $request->query->get('after', 0);
@@ -140,18 +148,77 @@ class NotificationController extends AbstractController implements PublicControl
                   AND r.approved_at >= (NOW() - INTERVAL 7 DAY)
             ";
             $kpiParams = [];
-            if (!$isAdmin) {
-                // Non-admin hanya melihat keputusan atas pengajuan MILIKNYA.
-                $kpiSql .= ' AND r.requested_by = :auth_emp';
-                $kpiParams['auth_emp'] = $authEmpNumber;
-            }
+            // Permintaan Pak 2026-11-24: notifikasi keputusan (approve/reject)
+            // masuk ke USER YANG MENGAJUKAN, bukan ke approver.
+            $kpiSql .= ' AND r.requested_by = :auth_emp';
+            $kpiParams['auth_emp'] = $authEmpNumber;
             $kpiSql .= ' ORDER BY r.approved_at DESC, r.id DESC LIMIT 50';
 
             $kpiRows = $conn->fetchAllAssociative($kpiSql, $kpiParams);
 
+            // GROUP 4: pengajuan EDIT indikator yang MASIH MENUNGGU persetujuan.
+            // Khusus approver (Admin/BOD) — inilah notifikasi "ada yang perlu
+            // di-approve" saat mereka login.
+            $kpiPendingSql = "
+                SELECT
+                    r.id,
+                    r.setup_id,
+                    r.divisi,
+                    r.target,
+                    r.bobot,
+                    r.schedule,
+                    'Menunggu' AS status,
+                    r.requested_by,
+                    r.requested_at AS updated_at,
+                    s.indikator,
+                    s.periode,
+                    s.satuan,
+                    TRIM(CONCAT(COALESCE(e.emp_firstname, ''), ' ', COALESCE(e.emp_lastname, ''))) AS requester_name,
+                    'kpi_edit_pending' AS type
+                FROM ohrm_kpi_setup_edit_request r
+                LEFT JOIN ohrm_kpi_setup s ON s.id = r.setup_id
+                LEFT JOIN hs_hr_employee e ON e.emp_number = r.requested_by
+                WHERE r.request_status = 'Menunggu'
+                ORDER BY r.requested_at DESC, r.id DESC
+                LIMIT 50
+            ";
+            $kpiPendingRows = $isKpiApprover ? $conn->fetchAllAssociative($kpiPendingSql) : [];
+
+            // GROUP 5: keputusan approval NILAI ACHIEVEMENT (realisasi) yang
+            // di-approve/reject admin — notifikasi ke user yang menginput.
+            $kpiAchSql = "
+                SELECT
+                    r.id,
+                    r.setup_id,
+                    r.divisi,
+                    r.periode,
+                    r.realisasi,
+                    r.skor,
+                    r.target_snap AS target,
+                    r.approval_status AS status,
+                    r.reject_reason AS note,
+                    r.approved_at AS updated_at,
+                    r.input_by,
+                    s.indikator,
+                    s.satuan,
+                    TRIM(CONCAT(COALESCE(e.emp_firstname, ''), ' ', COALESCE(e.emp_lastname, ''))) AS requester_name,
+                    'kpi_ach_request' AS type
+                FROM ohrm_kpi_realisasi r
+                LEFT JOIN ohrm_kpi_setup s ON s.id = r.setup_id
+                LEFT JOIN hs_hr_employee e ON e.emp_number = r.input_by
+                WHERE r.approval_status IN ('Disetujui', 'Ditolak')
+                  AND r.approved_at IS NOT NULL
+                  AND r.approved_at >= (NOW() - INTERVAL 7 DAY)
+                  AND r.input_by = :auth_emp
+                ORDER BY r.approved_at DESC, r.id DESC
+                LIMIT 20
+            ";
+            $kpiAchRows = $conn->fetchAllAssociative($kpiAchSql, ['auth_emp' => $authEmpNumber]);
+
             $response->setContent(json_encode([
                 'data' => [
-                    'total' => count($rows) + count($hrplanRows) + count($kpiRows),
+                    'total' => count($rows) + count($hrplanRows) + count($kpiRows)
+                        + count($kpiPendingRows) + count($kpiAchRows),
                     'items' => [
                         [
                             'type' => 'approval_task',
@@ -166,10 +233,22 @@ class NotificationController extends AbstractController implements PublicControl
                             'list' => $hrplanRows,
                         ],
                         [
+                            'type' => 'kpi_edit_pending',
+                            'label' => 'Pengajuan Edit KPI Menunggu',
+                            'count' => count($kpiPendingRows),
+                            'list' => $kpiPendingRows,
+                        ],
+                        [
                             'type' => 'kpi_edit_request',
                             'label' => 'Approval KPI',
                             'count' => count($kpiRows),
                             'list' => $kpiRows,
+                        ],
+                        [
+                            'type' => 'kpi_ach_request',
+                            'label' => 'Approval Nilai KPI',
+                            'count' => count($kpiAchRows),
+                            'list' => $kpiAchRows,
                         ],
                     ],
                 ]

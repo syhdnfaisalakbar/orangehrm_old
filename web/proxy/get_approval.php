@@ -35,27 +35,25 @@ try {
         $isAdmin = kpiIsFullScope($pdo, $emp);
     }
 
-    // 2. Scope divisi + cabang: admin = semua; non-admin = mapping-nya
-    //    (namun approval biasanya dijalankan admin; tetap di-scope supaya aman).
+    // 2. Scope divisi + cabang. Sejak 2026-11-24 (permintaan Pak) mapping
+    //    divisi MENANG atas full-scope: user yang punya mapping HANYA melihat
+    //    pengajuan divisinya sendiri, walaupun role-nya Admin/BOD. Admin/BOD
+    //    tanpa mapping tetap melihat semua divisi.
     $divisions = [];
     $cabByDiv = [];
-    if ($isAdmin) {
+    $filterCabang = false;
+    $approvalScope = kpiApprovalDivisionScope($pdo, $emp);
+    // BOD = approver lintas divisi (permintaan Pak 2026-11-24): mapping divisi
+    // TIDAK menyempitkan daftar, supaya pengajuan dari divisi mana pun tetap
+    // masuk ke menu Approval milik BOD (mis. andrew.colin).
+    $isBodApprover = (strcasecmp(kpiUserRoleName($pdo, $emp), 'BOD') === 0);
+    if ($approvalScope['has_mapping'] && !$isBodApprover) {
+        $divisions = $approvalScope['divisions'];
+        $cabByDiv = $approvalScope['cabang_by_divisi'];
+        $filterCabang = true;
+    } elseif ($isAdmin) {
         foreach ($pdo->query("SELECT DISTINCT divisi FROM ohrm_kpi_setup WHERE aktif=1 ORDER BY divisi") as $r)
             $divisions[] = $r['divisi'];
-    } else {
-        $st = $pdo->prepare("SELECT divisi, cabang FROM ohrm_kpi_division_member WHERE emp_number = ?");
-        $st->execute([$emp]);
-        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $div = (string)$r['divisi'];
-            if (!in_array($div, $divisions, true)) $divisions[] = $div;
-            $cab = $r['cabang'] === null ? null : (string)$r['cabang'];
-            if ($cab === null) {
-                $cabByDiv[$div] = '*';
-            } elseif (($cabByDiv[$div] ?? null) !== '*') {
-                $cabByDiv[$div][] = $cab;
-            }
-        }
-        $divisions = array_values($divisions);
     }
 
     // 3. Ambil baris submitted yang ada di dalam scope divisi (+ cabang utk non-admin).
@@ -64,7 +62,7 @@ try {
         $in = implode(',', array_fill(0, count($divisions), '?'));
         $where = "r.submitted = 1 AND r.divisi IN ($in)";
         $params = $divisions;
-        if (!$isAdmin) {
+        if ($filterCabang) {
             // force cabang sesuai mapping
             $cnd = [];
             foreach ($cabByDiv as $div => $cabSet) {

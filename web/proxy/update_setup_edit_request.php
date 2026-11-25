@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/_config.php';
 require_once __DIR__ . '/_kpi_scope.php';
+require_once __DIR__ . '/_kpi_lock_helper.php';
 /**
  * update_setup_edit_request.php
  *
@@ -74,6 +75,9 @@ try {
          WHERE id = :id"
     );
     $stVal = $pdo->prepare("SELECT target, bobot, schedule FROM ohrm_kpi_setup_edit_request WHERE id = :id");
+    // Nilai definisi SAAT INI (sebelum disetujui) — dipakai untuk mengunci
+    // bobot/target bulan-bulan yang sudah lewat (permintaan Pak 2026-11-23).
+    $stOld = $pdo->prepare("SELECT target, bobot FROM ohrm_kpi_setup WHERE id = :id");
 
     $count = 0;
     $done = [];
@@ -87,6 +91,19 @@ try {
             $stVal->execute([':id' => $rid]);
             $v = $stVal->fetch(PDO::FETCH_ASSOC);
             if (!$v) continue;
+            // Kunci bulan yang sudah lewat dengan nilai LAMA sebelum definisi diubah.
+            $stOld->execute([':id' => (int)$req['setup_id']]);
+            $old = $stOld->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($old) {
+                kpiLockIfChanged(
+                    $pdo,
+                    (int)$req['setup_id'],
+                    $old['bobot'],
+                    $old['target'],
+                    $v['bobot'],
+                    $v['target']
+                );
+            }
             $stUpdSetup->execute([
                 ':target'   => $v['target'],
                 ':bobot'    => (int)$v['bobot'],

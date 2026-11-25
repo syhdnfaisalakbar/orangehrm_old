@@ -300,6 +300,12 @@ export default {
           const newClass = isNew ? ' oxd-notif-entry-new' : '';
 
           // Notifikasi Approval KPI (keputusan pengajuan edit indikator)
+          if (entry.type === 'kpi_ach_request') {
+            return this.renderKpiAchEntry(entry, newClass);
+          }
+          if (entry.type === 'kpi_edit_pending') {
+            return this.renderKpiPendingEntry(entry, newClass);
+          }
           if (entry.type === 'kpi_edit_request') {
             return this.renderKpiEntry(entry, newClass);
           }
@@ -361,21 +367,97 @@ export default {
         this.saveLastSeenId();
       }
     },
+    // Entry notifikasi keputusan NILAI ACHIEVEMENT (realisasi) untuk penginput.
+    renderKpiAchEntry(entry, newClass) {
+      const approved = entry.status === 'Disetujui';
+      const title = entry.indikator || 'Indikator KPI';
+      const detail = [
+        entry.divisi || '',
+        entry.periode ? 'Periode ' + entry.periode : '',
+      ]
+        .filter(Boolean)
+        .join(' • ');
+      const nilai =
+        entry.realisasi === null || entry.realisasi === undefined
+          ? '-'
+          : String(entry.realisasi) + (entry.satuan ? ' ' + entry.satuan : '');
+      const line2 = 'Nilai Anda: ' + nilai;
+      const line3 =
+        entry.status === 'Ditolak'
+          ? 'Alasan: ' + (entry.note || '-')
+          : 'Nilai achievement Anda telah disetujui';
+      return `
+        <div class="oxd-notif-entry${newClass}" data-id="${
+        entry.id || ''
+      }" data-ts="${entry.updated_at || ''}" data-type="kpi_ach_request">
+          <div class="oxd-notif-entry-title">
+            <span class="oxd-notif-badge-dot ${
+              approved ? 'oxd-notif-dot-completed' : 'oxd-notif-dot-rejected'
+            }"></span>
+            ${this.escapeHtml(title)}
+            <span class="oxd-notif-status-badge ${
+              approved
+                ? 'oxd-notif-status-approved'
+                : 'oxd-notif-status-rejected'
+            }">${this.escapeHtml(entry.status || '')}</span>
+          </div>
+          <div class="oxd-notif-entry-detail">${this.escapeHtml(detail)}</div>
+          <div class="oxd-notif-entry-detail">${this.escapeHtml(line2)}</div>
+          <div class="oxd-notif-entry-detail">${this.escapeHtml(line3)}</div>
+          <div class="oxd-notif-entry-time">${this.formatTime(
+            entry.updated_at,
+          )}</div>
+        </div>
+      `;
+    },
+    // Entry notifikasi PENGAJUAN EDIT yang masih MENUNGGU approve (khusus BOD/Admin).
+    // Menampilkan nama indikator + siapa yang mengedit, seperti permintaan Pak.
+    renderKpiPendingEntry(entry, newClass) {
+      const title = entry.indikator || 'Indikator KPI';
+      const detail = [
+        entry.divisi || '',
+        entry.periode ? 'Periode ' + entry.periode : '',
+      ]
+        .filter(Boolean)
+        .join(' • ');
+      const who = 'Diedit oleh: ' + (entry.requester_name || '-');
+      return `
+        <div class="oxd-notif-entry${newClass}" data-id="${
+        entry.id || ''
+      }" data-ts="${entry.updated_at || ''}" data-type="kpi_edit_pending">
+          <div class="oxd-notif-entry-title">
+            <span class="oxd-notif-badge-dot oxd-notif-dot-pending"></span>
+            ${this.escapeHtml(title)}
+            <span class="oxd-notif-status-badge oxd-notif-status-pending">Menunggu</span>
+          </div>
+          <div class="oxd-notif-entry-detail">${this.escapeHtml(detail)}</div>
+          <div class="oxd-notif-entry-detail">${this.escapeHtml(
+            who,
+          )} • menunggu persetujuan Anda</div>
+          <div class="oxd-notif-entry-time">${this.formatTime(
+            entry.updated_at,
+          )}</div>
+        </div>
+      `;
+    },
     // Entry khusus notifikasi Approval KPI (keputusan pengajuan edit indikator).
     // Klik entry -> langsung halaman Approval KPI (bukan viewSystemUsers).
     renderKpiEntry(entry, newClass) {
       const approved = entry.status === 'Disetujui';
-      const title = entry.divisi ? 'KPI ' + entry.divisi : 'Approval KPI';
+      // Permintaan Pak 2026-11-24: judul = NAMA INDIKATOR, dan selalu tampilkan
+      // siapa yang mengedit (pengaju), baik Disetujui maupun Ditolak.
+      const title = entry.indikator || 'Indikator KPI';
       const detail = [
-        entry.indikator || '',
+        entry.divisi || '',
         entry.periode ? 'Periode ' + entry.periode : '',
       ]
         .filter(Boolean)
-        .join(' — ');
+        .join(' • ');
+      const editor = 'Diedit oleh: ' + (entry.requester_name || '-');
       const note =
         entry.status === 'Ditolak'
-          ? 'Alasan: ' + (entry.note || '-')
-          : 'Pengaju: ' + (entry.requester_name || '-');
+          ? editor + ' • Alasan: ' + (entry.note || '-')
+          : editor;
       return `
         <div class="oxd-notif-entry${newClass}" data-id="${
         entry.id || ''
@@ -405,8 +487,13 @@ export default {
       if (!el) return;
       const baseUrl = this.getBaseUrl();
       const type = el.dataset.type;
-      if (type === 'kpi_edit_request') {
-        window.location.href = baseUrl + '/performance/approvalKpi';
+      if (type === 'kpi_edit_request' || type === 'kpi_edit_pending') {
+        window.location.href = baseUrl + '/performance/approvalKpi?tab=edit';
+        return;
+      }
+      if (type === 'kpi_ach_request') {
+        // Keputusan nilai achievement -> balik ke halaman Input Realisasi KPI.
+        window.location.href = baseUrl + '/performance/inputRealisasiKpi';
         return;
       }
       if (el.dataset.case) {
@@ -601,6 +688,15 @@ export default {
 
 .oxd-notif-dot-completed {
   background: #1e8e3e;
+}
+
+.oxd-notif-dot-pending {
+  background: #f59e0b;
+}
+
+.oxd-notif-status-badge.oxd-notif-status-pending {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .oxd-notif-dot-rejected {

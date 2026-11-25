@@ -47,6 +47,9 @@
           @click="switchTab('edit')"
         >
           Edit Indikator
+          <span v-if="editPendingCount" class="orangehrm-tab-count">{{
+            editPendingCount
+          }}</span>
         </button>
       </div>
       <br />
@@ -651,10 +654,6 @@ export default {
       );
     },
   },
-  mounted() {
-    this.fetchData();
-    this.fetchEditRequests(); // default tab = Edit Indikator, muat data sejak awal
-  },
   watch: {
     // Clamp halaman aktif supaya tidak melebihi jumlah halaman setelah data
     // berubah (filter/fetch/approve) atau halaman terakhir jadi kosong.
@@ -668,6 +667,14 @@ export default {
         this.pageEdit = Math.max(1, this.editPages);
       }
     },
+  },
+  mounted() {
+    // Dukung deep-link dari badge "Waiting" di Input Realisasi KPI:
+    // approvalKpi?tab=edit -> langsung buka tab Edit Indikator.
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('tab') === 'edit') this.activeTab = 'edit';
+    this.fetchData();
+    this.fetchEditRequests(); // default tab = Edit Indikator, muat data sejak awal
   },
   methods: {
     getBaseUrl() {
@@ -1048,6 +1055,22 @@ export default {
   justify-content: center;
   margin-top: 0.9rem;
 }
+.orangehrm-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .orangehrm-tabs {
   display: flex;
   gap: 0.5rem;

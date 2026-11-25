@@ -112,10 +112,10 @@
 
       <div class="orangehrm-header-container">
         <oxd-button
-          v-if="deletedKeys.length"
+          v-if="selectedKeys.length"
           display-type="danger"
           icon-name="trash"
-          :label="`Delete (${deletedKeys.length})`"
+          :label="`Delete (${selectedKeys.length})`"
           @click="confirmDeleteSelected"
         />
         <oxd-button
@@ -465,12 +465,12 @@
                     <input
                       type="checkbox"
                       :checked="allYearsMarked"
-                      :disabled="!deletableYears.length"
+                      :disabled="!yearRows.length"
                       :indeterminate.prop="someYearsMarked && !allYearsMarked"
                       :title="
                         allYearsMarked
                           ? 'Batalkan pilih semua indikator'
-                          : 'Pilih semua indikator yang bisa dihapus'
+                          : 'Pilih semua indikator (Ajukan Verifikasi / Hapus)'
                       "
                       @change="toggleDeleteAll"
                     />
@@ -502,11 +502,10 @@
                         type="checkbox"
                         class="oxd-input"
                         :checked="yearMarked(y)"
-                        :disabled="!yearDeletable(y)"
                         :title="
-                          yearDeletable(y)
-                            ? 'Tandai untuk hapus (indikator ini di semua bulan)'
-                            : 'Tidak bisa dihapus (sudah ada nilai/pengajuan)'
+                          yearMarked(y)
+                            ? 'Batalkan pilih indikator ini'
+                            : 'Pilih indikator ini (untuk Ajukan Verifikasi atau Hapus)'
                         "
                         @change="toggleDeleteYear(y)"
                       />
@@ -585,9 +584,18 @@
                     </td>
                     <td class="orangehrm-aksi-cell">
                       <span
+                        v-if="yApprovalLabel(y)"
+                        class="orangehrm-ach-approval"
+                        :class="yApprovalClass(y)"
+                        :title="yApprovalTitle(y)"
+                        >{{ yApprovalLabel(y) }}</span
+                      >
+                      <span
                         v-if="pendingEdit(y.ref)"
-                        class="orangehrm-editpending"
-                        >&#9203; Menunggu</span
+                        class="orangehrm-editpending orangehrm-editpending-link"
+                        title="Perubahan target/bobot sudah masuk Approval KPI (tab Edit Indikator), menunggu keputusan admin. Klik untuk membuka."
+                        @click="openApprovalPending()"
+                        >&#9203; Waiting</span
                       >
                       <oxd-icon-button
                         v-else
@@ -597,6 +605,12 @@
                         :title="'Edit'"
                         @click="openEdit(y.ref)"
                       />
+                      <span
+                        v-if="hasDraftEdit(y) && !pendingEdit(y.ref)"
+                        class="orangehrm-draftedit"
+                        title="Perubahan target/bobot sudah disimpan tapi belum diajukan ke Approval"
+                        >&#9203; Waiting</span
+                      >
                       <oxd-icon-button
                         v-if="yearHasValue(y)"
                         class="orangehrm-hist"
@@ -666,6 +680,7 @@
             display-type="warning"
             :label="'Ajukan Verifikasi & Approve'"
             type="submit"
+            :disabled="!hasSelection"
           />
         </oxd-form-actions>
       </oxd-form>
@@ -845,7 +860,7 @@ export default {
       // Halaman aktif tabel (pagination per grup divisi×periode).
       currentPage: 1,
       // Pasangan "setup_id__periode" yang ditandai utk dihapus (hapus per periode).
-      deletedKeys: [],
+      selectedKeys: [],
       // History Achievement (modal ikon jam di kolom Aksi)
       showHistory: false,
       historyRows: [],
@@ -1135,8 +1150,10 @@ export default {
       if (!s) return null;
       const y = this.yearRows.find((r) => r.key === s.yKey);
       if (!y) return null;
-      const target = this.yTarget(y);
-      const bobot = this.yBobot(y);
+      // Permintaan Pak 2026-11-23: bulan yang sudah lewat memakai snapshot
+      // bobot/target-nya sendiri, jadi angka popup tidak ikut berubah saat bobot diedit.
+      const target = this.targetOfMonth(y, s.m);
+      const bobot = this.bobotOfMonth(y, s.m);
       const ach = this.achNumOf(y, s.m);
       const kpi = this.kpiAchOfPopup(y, s.m);
       const satuan = y.satuan || '';
@@ -1272,15 +1289,24 @@ export default {
     // --- "Pilih semua" di header tabel (permintaan Pak 2026-11-18) ---
     // Hanya baris yang boleh dihapus yang ikut tercentang; baris yang sudah
     // punya nilai/pengajuan tetap dilewati supaya server tidak menolak.
+    // Baris yang boleh dihapus — dipakai HANYA oleh tombol Delete.
+    // Sejak 2026-11-23 checkbox = "pilih indikator" (dipakai juga oleh tombol
+    // Ajukan Verifikasi), jadi centang tidak lagi dibatasi baris yang bisa dihapus.
     deletableYears() {
       return this.yearRows.filter((y) => this.yearDeletable(y));
     },
     allYearsMarked() {
-      const list = this.deletableYears;
-      return list.length > 0 && list.every((y) => this.yearMarked(y));
+      return (
+        this.yearRows.length > 0 &&
+        this.yearRows.every((y) => this.yearMarked(y))
+      );
     },
     someYearsMarked() {
       return this.yearRows.some((y) => this.yearMarked(y));
+    },
+    // Ada indikator dicentang? Dipakai untuk enable/disable tombol Ajukan.
+    hasSelection() {
+      return this.selectedKeys.length > 0;
     },
   },
   watch: {
@@ -1302,6 +1328,11 @@ export default {
     this.fetchData();
   },
   methods: {
+    // Badge "Waiting" diklik -> buka Approval KPI langsung di tab Edit Indikator.
+    openApprovalPending() {
+      const base = String(this.getBaseUrl() || '').replace(/\/+$/, '');
+      window.location.href = `${base}/performance/approvalKpi?tab=edit`;
+    },
     getBaseUrl() {
       const base = window.appGlobal?.baseUrl || '';
       return base.replace('/index.php', '') || '';
@@ -1596,8 +1627,8 @@ export default {
         return this.kpiAchOf(y, m);
       }
       const ach = this.achNumOf(y, m);
-      const target = Number(this.yTarget(y));
-      const bobot = this.yBobot(y);
+      const target = Number(this.targetOfMonth(y, m));
+      const bobot = this.bobotOfMonth(y, m);
       if (ach === null || !target || bobot === null || bobot === undefined) {
         return null;
       }
@@ -1606,25 +1637,63 @@ export default {
     },
     kpiAchOf(y, m) {
       const ach = this.achNumOf(y, m);
-      const target = Number(this.yTarget(y));
-      const bobot = this.yBobot(y);
+      const target = Number(this.targetOfMonth(y, m));
+      const bobot = this.bobotOfMonth(y, m);
       if (ach === null || !target || bobot === null || bobot === undefined) {
         return null;
       }
       if (ach >= target) return Number(bobot);
       return (ach / target) * Number(bobot);
     },
+    // Sejak 2026-11-24 draft edit TIDAK dipakai untuk tampilan: angka
+    // target/bobot/total baru berubah setelah pengajuan di-approve admin.
     yBobot(y) {
-      const d = this.getDraft(y.setup_id);
-      return d ? d.bobot : y.ref.bobot;
+      return y.ref.bobot;
     },
     yTarget(y) {
-      const d = this.getDraft(y.setup_id);
-      return d ? d.target : y.ref.target;
+      return y.ref.target;
+    },
+    // Bobot & target yang BERLAKU untuk bulan m (permintaan Pak 2026-11-23).
+    // Server mengirim `bobot_fix`/`target_fix` untuk bulan yang sudah dikunci
+    // (periode < bulan berjalan saat definisi diubah). Kalau terisi, pakai nilai
+    // itu -> bulan lalu TIDAK berubah walau bobot/target diedit.
+    // Bulan berjalan / belum punya snapshot -> pakai definisi terkini (termasuk
+    // draft edit yang belum diajukan), itulah yang membuat bulan ini ikut berubah.
+    // True kalau bulan m sudah lewat (sebelum bulan berjalan).
+    monthIsPast(y, m) {
+      const c = y.months[m];
+      const ym =
+        c && c.periode
+          ? String(c.periode)
+          : `${this.applied.year}-${String(m).padStart(2, '0')}`;
+      return ym < this.currentYm;
+    },
+    bobotOfMonth(y, m) {
+      const c = y.months[m];
+      if (c && c.bobot_fix !== null && c.bobot_fix !== undefined) {
+        return Number(c.bobot_fix);
+      }
+      // Bulan yang sudah lewat SELALU memakai definisi tersimpan di server,
+      // bukan draft edit yang sedang dibuka -> pratinjau edit bobot tidak lagi
+      // menggeser angka bulan lalu (permintaan Pak 2026-11-23).
+      if (this.monthIsPast(y, m)) {
+        return Number(y.ref.bobot);
+      }
+      return this.yBobot(y);
+    },
+    targetOfMonth(y, m) {
+      const c = y.months[m];
+      if (c && c.target_fix !== null && c.target_fix !== undefined) {
+        return Number(c.target_fix);
+      }
+      if (this.monthIsPast(y, m)) {
+        return Number(y.ref.target);
+      }
+      return this.yTarget(y);
     },
     ySchedule(y) {
-      const d = this.getDraft(y.setup_id);
-      return d ? d.schedule : y.ref.schedule;
+      // Sama: jadwal baru berlaku setelah pengajuan edit disetujui.
+      return y.ref.schedule;
     },
     // Bulan yang boleh diisi sesuai Schedule (null = semua bulan).
     yScheduleMonths(y) {
@@ -1669,7 +1738,14 @@ export default {
       ) {
         return null;
       }
-      const target = Number(c.target) || 0;
+      // Snapshot target bulan itu (kalau ada) supaya persen achievement bulan
+      // lalu tidak bergeser saat target definisi diubah (permintaan Pak 2026-11-23).
+      const target =
+        Number(
+          c.target_fix !== null && c.target_fix !== undefined
+            ? c.target_fix
+            : c.target,
+        ) || 0;
       const real = Number(c.realisasi) || 0;
       if (!target) return null;
       const s = c.lower ? (target / (real || 1)) * 100 : (real / target) * 100;
@@ -1850,7 +1926,7 @@ export default {
       return keys;
     },
     yearMarked(y) {
-      return this.yearRowKeys(y).some((k) => this.deletedKeys.includes(k));
+      return this.yearRowKeys(y).some((k) => this.selectedKeys.includes(k));
     },
     yearDeletable(y) {
       return this.yearRowKeys(y).some((k) => {
@@ -1860,28 +1936,35 @@ export default {
     },
     // Centang / lepas SEMUA indikator sekaligus dari checkbox di header tabel.
     toggleDeleteAll() {
-      const list = this.deletableYears;
       if (this.allYearsMarked) {
-        list.forEach((y) => {
-          if (this.yearMarked(y)) this.toggleDeleteYear(y);
-        });
+        this.selectedKeys = [];
         return;
       }
-      list.forEach((y) => {
-        if (!this.yearMarked(y)) this.toggleDeleteYear(y);
-      });
+      const all = [];
+      this.yearRows.forEach((y) => all.push(...this.yearRowKeys(y)));
+      this.selectedKeys = Array.from(new Set(all));
     },
     toggleDeleteYear(y) {
       const keys = this.yearRowKeys(y);
       if (this.yearMarked(y)) {
-        this.deletedKeys = this.deletedKeys.filter((k) => !keys.includes(k));
+        this.selectedKeys = this.selectedKeys.filter((k) => !keys.includes(k));
         return;
       }
-      const add = keys.filter((k) => {
-        const c = this.rows.find((r) => this.rowKey(r) === k);
-        return c ? this.isRowDeletable(c) : false;
+      this.selectedKeys = Array.from(new Set([...this.selectedKeys, ...keys]));
+    },
+    // Baris ini termasuk yang dicentang?
+    rowSelectedNow(r) {
+      return this.selectedKeys.includes(this.rowKey(r));
+    },
+    // Indikator (setup_id) yang dicentang. Dipakai untuk menyaring draft
+    // perubahan target/bobot yang ikut diajukan — draft indikator yang tidak
+    // dicentang TIDAK dikirim.
+    selectedSetupIds() {
+      const ids = new Set();
+      this.rows.forEach((r) => {
+        if (this.rowSelectedNow(r)) ids.add(Number(r.setup_id));
       });
-      this.deletedKeys = Array.from(new Set([...this.deletedKeys, ...add]));
+      return ids;
     },
     // --- Sumber Data per sel bulan (modal kecil) ---
     openSumber(y, m) {
@@ -2029,6 +2112,53 @@ export default {
     },
     statusLabel(r) {
       return statusText(this.scoreOf(r));
+    },
+    // Ada draft perubahan target/bobot (tersimpan lokal, belum diajukan)?
+    hasDraftEdit(y) {
+      if (!this.pendingEdits || !this.pendingEdits.length) return false;
+      const ids = new Set();
+      if (y.ref && y.ref.setup_id) ids.add(Number(y.ref.setup_id));
+      for (let m = 1; m <= 12; m += 1) {
+        const c = this.cellOf(y, m);
+        if (c && c.setup_id) ids.add(Number(c.setup_id));
+      }
+      return this.pendingEdits.some((d) => ids.has(Number(d.setup_id)));
+    },
+    // Ringkasan status approval Achievement satu indikator pada tahun aktif,
+    // dipakai badge di kolom Aksi: {Disetujui: [bulan...], Ditolak: [...], Menunggu: [...]}.
+    yApprovalMonths(y) {
+      const map = {Disetujui: [], Ditolak: [], Menunggu: []};
+      for (let m = 1; m <= 12; m += 1) {
+        const c = this.cellOf(y, m);
+        const s = c ? c.approval_status : null;
+        if (s && map[s]) map[s].push(m);
+      }
+      return map;
+    },
+    // Prioritas label: ada yang Ditolak > masih Menunggu > semua Disetujui.
+    yApprovalLabel(y) {
+      const a = this.yApprovalMonths(y);
+      if (a.Ditolak.length) return 'Ditolak';
+      if (a.Menunggu.length) return 'Menunggu';
+      if (a.Disetujui.length) return 'Disetujui';
+      return '';
+    },
+    yApprovalClass(y) {
+      const l = this.yApprovalLabel(y);
+      if (l === 'Ditolak') return 'status-red';
+      if (l === 'Menunggu') return 'status-yellow';
+      if (l === 'Disetujui') return 'status-green';
+      return '';
+    },
+    // Tooltip: rincian bulan per status (biar tahu bulan mana yang sudah approve).
+    yApprovalTitle(y) {
+      const a = this.yApprovalMonths(y);
+      const nm = (ms) => ms.map((m) => this.monthShort[m - 1]).join(', ');
+      const parts = [];
+      if (a.Disetujui.length) parts.push(`Disetujui: ${nm(a.Disetujui)}`);
+      if (a.Menunggu.length) parts.push(`Menunggu: ${nm(a.Menunggu)}`);
+      if (a.Ditolak.length) parts.push(`Ditolak: ${nm(a.Ditolak)}`);
+      return parts.join(' • ');
     },
     approvalBadgeClass(r) {
       // Badge status approval per baris: Menunggu(kuning)/Disetujui(hijau)/
@@ -2307,6 +2437,8 @@ export default {
         submit: flag,
         rows: source
           .filter((r) => !r.submitted)
+          // Pengajuan (permintaan Pak 2026-11-23): HANYA indikator yang dicentang.
+          .filter((r) => (flag ? this.rowSelectedNow(r) : true))
           .filter((r) =>
             flag
               ? r.realisasi !== null &&
@@ -2323,28 +2455,49 @@ export default {
             bukti: r.bukti,
           })),
       };
-      if (flag && !payload.rows.length) {
+      // Draft perubahan target/bobot hanya ikut untuk indikator yang dicentang.
+      const editDrafts = flag
+        ? this.pendingEdits.filter((d) =>
+            this.selectedSetupIds().has(Number(d.setup_id)),
+          )
+        : [];
+      // Boleh mengajukan perubahan target/bobot saja, tanpa nilai Achievement.
+      const onlyEdits =
+        flag && payload.rows.length === 0 && editDrafts.length > 0;
+      if (flag && !payload.rows.length && !editDrafts.length) {
         this.$toast.error({
-          title: 'Tidak ada nilai untuk diajukan',
-          message: 'Isi minimal satu sel pada tahun aktif terlebih dahulu.',
+          title: 'Tidak ada yang diajukan',
+          message: !this.hasSelection
+            ? 'Centang dulu indikator yang mau diajukan (checkbox paling kiri pada tabel).'
+            : 'Indikator yang dicentang belum punya nilai baru dan tidak punya perubahan target/bobot. Isi minimal satu sel atau ubah target/bobot lewat ikon pensil.',
         });
         return;
       }
       try {
-        const res = await fetch(
-          `${this.getBaseUrl()}/proxy/save_kpi_realisasi.php`,
-          {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload),
-          },
-        );
-        const json = await res.json();
+        let json = {status: 'success', message: '', skippedJadwal: 0};
+        if (!onlyEdits) {
+          const res = await fetch(
+            `${this.getBaseUrl()}/proxy/save_kpi_realisasi.php`,
+            {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(payload),
+            },
+          );
+          json = await res.json();
+        }
         if (json.status === 'success') {
           if (flag) {
-            // Submit juga semua draft edit definisi yang belum diajukan ke
-            // Approval (baru dikirim saat tombol ini diklik).
-            const failedEdits = await this.submitPendingEdits();
+            // Kirim draft edit definisi HANYA untuk indikator yang dicentang.
+            const failedEdits = await this.submitPendingEdits(editDrafts);
+            const okEdits = editDrafts.length - failedEdits;
+            const parts = [];
+            if (json.message) parts.push(json.message);
+            if (okEdits > 0) {
+              parts.push(`${okEdits} perubahan target/bobot diajukan`);
+            }
+            if (failedEdits > 0)
+              parts.push(`${failedEdits} edit gagal diajukan`);
             // Popup SweetAlert (samakan pola dgn Save Draft/Add) — pengganti toast.
             await Swal.fire({
               icon:
@@ -2353,10 +2506,13 @@ export default {
                   : 'success',
               title: 'Berhasil Diajukan',
               text:
-                json.message +
-                (failedEdits ? ` — ${failedEdits} edit tidak terajukan.` : ''),
+                parts.join(' — ') +
+                '. Bulan sebelum bulan berjalan tetap memakai target/bobot lama.',
               confirmButtonText: 'OK',
             });
+            // Baris yang sudah diajukan terkunci -> lepas centangnya supaya
+            // pilihan berikutnya tidak mencampur baris yang tak bisa diajukan.
+            this.selectedKeys = [];
             await this.fetchData();
           } else {
             // Jangan tampilkan "sukses" polos kalau ada baris yang dilewati
@@ -2390,9 +2546,9 @@ export default {
     // save_setup_edit_request.php sbg request 'Menunggu'. Yang berhasil
     // dikirim keluar dari pendingEdits; yang gagal dipertahankan biar bisa
     // dicoba lagi. Return jumlah draft yang gagal.
-    async submitPendingEdits() {
-      if (!this.pendingEdits.length) return 0;
-      const orig = [...this.pendingEdits];
+    async submitPendingEdits(drafts) {
+      const orig = drafts ? [...drafts] : [...this.pendingEdits];
+      if (!orig.length) return 0;
       const failed = [];
       for (const d of orig) {
         try {
@@ -2469,13 +2625,29 @@ export default {
     },
     toggleDelete(r) {
       const key = this.rowKey(r);
-      const idx = this.deletedKeys.indexOf(key);
-      if (idx >= 0) this.deletedKeys.splice(idx, 1);
-      else this.deletedKeys.push(key);
+      const idx = this.selectedKeys.indexOf(key);
+      if (idx >= 0) this.selectedKeys.splice(idx, 1);
+      else this.selectedKeys.push(key);
     },
     confirmDeleteSelected() {
-      if (!this.deletedKeys.length) return;
-      const nama = this.deletedKeys
+      if (!this.selectedKeys.length) return;
+      // Sejak checkbox dipakai juga untuk pengajuan, centang bisa berisi baris
+      // yang TIDAK boleh dihapus (sudah ada nilai/pengajuan). Hapus hanya yang
+      // boleh, sisanya dilaporkan.
+      const deletableKeys = this.selectedKeys.filter((key) => {
+        const hit = this.rows.find((x) => this.rowKey(x) === key);
+        return hit ? this.isRowDeletable(hit) : false;
+      });
+      if (!deletableKeys.length) {
+        this.$toast.error({
+          title: 'Tidak bisa dihapus',
+          message:
+            'Indikator yang dicentang sudah punya nilai atau pengajuan. Lepas centangnya lalu pilih indikator yang masih kosong.',
+        });
+        return;
+      }
+      const skipped = this.selectedKeys.length - deletableKeys.length;
+      const nama = deletableKeys
         .map((key) => {
           const [sid, per] = key.split('__');
           const hit = this.rows.find(
@@ -2488,17 +2660,21 @@ export default {
         .join(', ');
       Swal.fire({
         title: 'Hapus Indikator?',
-        text: `Indikator berikut akan dihapus untuk periode terpilih: ${nama}`,
+        text:
+          `Indikator berikut akan dihapus untuk periode terpilih: ${nama}` +
+          (skipped
+            ? ` — ${skipped} pilihan lain dilewati karena sudah ada nilai/pengajuan.`
+            : ''),
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Ya, Hapus',
         cancelButtonText: 'Batal',
       }).then((result) => {
-        if (result.isConfirmed) this.deleteSelected();
+        if (result.isConfirmed) this.deleteSelected(deletableKeys);
       });
     },
-    async deleteSelected() {
-      const items = this.deletedKeys.map((key) => {
+    async deleteSelected(keys) {
+      const items = keys.map((key) => {
         const [sid, per] = key.split('__');
         return {setup_id: Number(sid), periode: per};
       });
@@ -2519,7 +2695,7 @@ export default {
             text: json.message,
             confirmButtonText: 'OK',
           });
-          this.deletedKeys = [];
+          this.selectedKeys = [];
           // Bersihkan draft edit untuk setup yang dihapus (mencegah draft
           // mengacu ke indikator yang sudah dinonaktifkan).
           const delSetupIds = new Set(items.map((i) => i.setup_id));
@@ -2797,33 +2973,33 @@ export default {
             this.$toast.error(json.message || 'Gagal memperbarui indikator.');
           }
         } else {
-          // Non-admin: Simpan edit DIKUMPULKAN sbg DRAFT — TIDAK langsung submit
-          // approval. Nilai baru ditampilkan di baris (preview) + badge
-          // "Perubahan Belum Diajukan". Baru dikirim ke save_setup_edit_request.php
-          // (status Menunggu -> tab Approval > Edit Indikator) saat tombol
-          // "Ajukan Verifikasi & Approve" diklik.
-          const idx = this.pendingEdits.findIndex(
-            (d) => d.setup_id === f.setup_id,
+          // Non-admin (permintaan Pak 2026-11-24): Simpan edit LANGSUNG masuk
+          // pengajuan Approval (tab Edit Indikator) — bukan draft lokal.
+          // Angka target/bobot/total TIDAK berubah sampai admin approve; selama
+          // menunggu kolom Aksi menampilkan "Waiting".
+          const res = await fetch(
+            `${this.getBaseUrl()}/proxy/save_setup_edit_request.php`,
+            {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(body),
+            },
           );
-          const draft = {
-            setup_id: f.setup_id,
-            divisi: divisi,
-            bobot: Number(f.bobot),
-            target: Number(f.target),
-            schedule: sch && sch.label ? sch.label : 'Monthly',
-          };
-          if (idx >= 0) this.pendingEdits.splice(idx, 1, draft);
-          else this.pendingEdits.push(draft);
-          this.editCancel();
-          await Swal.fire({
-            icon: 'info',
-            title: 'Perubahan Disimpan',
-            text: 'Perubahan belum diajukan ke Approval. Klik "Ajukan Verifikasi & Approve" untuk mengajukannya.',
-            confirmButtonText: 'OK',
-          });
-          // JANGAN fetchData di sini — baris menampilkan nilai draft dari
-          // pendingEdits, dan fetchData akan menghapus realisasi yang baru
-          // diketik (belum disimpan).
+          const json = await res.json();
+          if (json && json.status === 'success') {
+            this.editCancel();
+            await Swal.fire({
+              icon: 'success',
+              title: 'Masuk Approval',
+              text: 'Perubahan target/bobot sudah diajukan ke Approval KPI (Performance > Approval KPI, tab Edit Indikator). Target, bobot, dan total baru berubah setelah disetujui. Bulan sebelum bulan berjalan tetap memakai target/bobot lama.',
+              confirmButtonText: 'OK',
+            });
+            await this.fetchData();
+          } else {
+            this.$toast.error(
+              (json && json.message) || 'Gagal mengajukan perubahan.',
+            );
+          }
         }
       } catch (e) {
         this.$toast.error('Gagal memperbarui indikator: ' + e.message);
@@ -3104,6 +3280,53 @@ export default {
     font-weight: 700;
     color: #303030;
   }
+}
+
+.orangehrm-editpending-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.orangehrm-draftedit {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: #3b4cca;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.orangehrm-ach-approval {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.orangehrm-ach-approval.status-green {
+  background: #e6f4ea;
+  color: #1e7e34;
+}
+.orangehrm-ach-approval.status-red {
+  background: #fdecea;
+  color: #c62828;
+}
+.orangehrm-ach-approval.status-yellow {
+  background: #fff6e0;
+  color: #a8690b;
 }
 
 .orangehrm-status {

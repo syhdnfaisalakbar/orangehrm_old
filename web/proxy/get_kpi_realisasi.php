@@ -159,7 +159,7 @@ try {
     );
     $stmtReal = $pdo->prepare(
         "SELECT setup_id, COALESCE(cabang,'') AS cabang, realisasi, bukti, skor, status,
-                submitted, approval_status
+                submitted, approval_status, bobot_snap, target_snap
          FROM ohrm_kpi_realisasi WHERE setup_id = :setup_id AND periode = :periode"
     );
 
@@ -206,7 +206,8 @@ try {
                 $ids = array_column($setups, 'setup_id');
                 $in = implode(',', array_fill(0, count($ids), '?'));
                 $par = array_merge($ids, [$periode]);
-                $st = $pdo->prepare("SELECT setup_id, COALESCE(cabang,'') AS cabang, realisasi, bukti, skor, status, submitted, approval_status
+                $st = $pdo->prepare("SELECT setup_id, COALESCE(cabang,'') AS cabang, realisasi, bukti, skor, status, submitted, approval_status,
+                                            bobot_snap, target_snap
                                      FROM ohrm_kpi_realisasi WHERE setup_id IN ($in) AND periode = ?");
                 $st->execute($par);
                 foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $rr) {
@@ -277,6 +278,11 @@ try {
                         'target'      => (float)$row['target'],
                         'satuan'      => $row['satuan'],
                         'bobot'       => (int)$row['bobot'],
+                        // Snapshot bobot/target bulan itu (permintaan Pak 2026-11-23):
+                        // kalau terisi, angka KPI Ach bulan tersebut memakai nilai ini
+                        // sehingga edit bobot hanya mengubah bulan berjalan & sesudahnya.
+                        'bobot_fix'   => (isset($rr['bobot_snap']) && $rr['bobot_snap'] !== null) ? (float)$rr['bobot_snap'] : null,
+                        'target_fix'  => (isset($rr['target_snap']) && $rr['target_snap'] !== null) ? (float)$rr['target_snap'] : null,
                         'schedule'    => $row['schedule'],
                         'lower'       => (bool)$row['lower'],
                         'realisasi'   => $real !== null ? (float)$real : null,

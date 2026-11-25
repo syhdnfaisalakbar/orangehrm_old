@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_config.php';
+require_once __DIR__ . '/_kpi_lock_helper.php';
 /**
  * save_setup_kpi.php
  *
@@ -97,11 +98,16 @@ try {
         // diubah admin (pindah indikator ke divisi lain). Validasi cukup bahwa
         // setup ada & aktif — TIDAK cocokkan divisi lama (utk mengizinkan
         // pindah divisi); admin boleh menetapkan divisi baru apa pun.
-        $chk = $pdo->prepare("SELECT id FROM ohrm_kpi_setup WHERE id = :id AND aktif = 1");
+        $chk = $pdo->prepare("SELECT id, divisi, indikator, target, bobot, schedule FROM ohrm_kpi_setup WHERE id = :id AND aktif = 1");
         $chk->execute([':id' => $setupId]);
-        if (!$chk->fetchColumn()) {
+        $oldSetup = $chk->fetch(PDO::FETCH_ASSOC);
+        if (!$oldSetup) {
             echo json_encode(['status'=>'error','message'=>'Indikator tidak ditemukan.']); exit;
         }
+        // Kunci bobot/target bulan yang sudah lewat dengan nilai LAMA
+        // (permintaan Pak 2026-11-23): edit bobot hanya mengubah bulan berjalan.
+        kpiLockIfChanged($pdo, (int)$setupId, $oldSetup['bobot'], $oldSetup['target'], $bobot, $target);
+
         $upd = $pdo->prepare(
             "UPDATE ohrm_kpi_setup SET divisi = :divisi, target = :target, bobot = :bobot,
                     schedule = :schedule, updated_at = NOW()
@@ -118,11 +124,41 @@ try {
         // & seeding periode di get_kpi_realisasi.php ikut ke divisi baru.
         $pdo->prepare("UPDATE ohrm_kpi_realisasi SET divisi = ? WHERE setup_id = ?")
             ->execute([$divisi, $setupId]);
-        echo json_encode([
+        // NOTIFIKASI EMAIL ke role BOD (permintaan Pak 2026-11-24) untuk edit
+        // target/bobot/schedule lewat ikon pensil. Response dikirim DULU dengan
+        // Content-Length supaya UI tidak menunggu koneksi SMTP (~4 s/email).
+        $payload = json_encode([
             'status'  => 'success',
             'message' => 'Indikator berhasil diperbarui',
             'data'    => ['setup_id' => $setupId, 'divisi' => $divisi],
         ]);
+        header('Content-Length: ' . strlen($payload));
+        header('Connection: keep-alive');
+        echo $payload;
+        ignore_user_abort(true);
+        while (ob_get_level() > 0) {
+            @ob_end_flush();
+        }
+        @flush();
+
+        @include_once __DIR__ . '/kpi_mailer.php';
+        if (defined('KPI_EMAIL_NOTIFY_ENABLED') && KPI_EMAIL_NOTIFY_ENABLED === true
+            && function_exists('kpi_notify_setup_change')) {
+            try {
+                $mailOld = [
+                    'id'        => $setupId,
+                    'indikator' => (string)($oldSetup['indikator'] ?? ''),
+                    // Tampilkan divisi TUJUAN (admin boleh pindah divisi).
+                    'divisi'    => $divisi !== '' ? $divisi : (string)($oldSetup['divisi'] ?? ''),
+                    'target'    => $oldSetup['target'] ?? null,
+                    'bobot'     => $oldSetup['bobot'] ?? null,
+                    'schedule'  => $oldSetup['schedule'] ?? null,
+                ];
+                kpi_notify_setup_change($pdo, $emp, $mailOld, $target, $bobot, $schedule);
+            } catch (Throwable $e) {
+                // diabaikan: email best-effort, data sudah tersimpan
+            }
+        }
     } else {
         // Validasi duplikat (permintaan Pak): indikator dianggap kembar HANYA bila
         // nama sama di divisi + cabang yang sama DAN periodenya sama persis.

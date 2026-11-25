@@ -61,6 +61,8 @@ FILES=(
   mpp-home-page.sql
   # revisi 2026-11-23: widget Quick Launch disembunyikan untuk role MPP
   mpp-hide-quick-launch.sql
+  # revisi 2026-11-23: kunci bobot/target KPI per bulan (edit bobot tidak mengubah angka bulan lalu)
+  kpi-bobot-snapshot.sql
   # --- recruitment: status Task Acumatica per kandidat ---
   candidate-acumatica-task.sql
   # --- KPI: akses BOD + halaman pertama ESS ---

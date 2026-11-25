@@ -95,25 +95,43 @@ try {
     ]);
     $rid = (int)$pdo->lastInsertId();
 
-    // Notifikasi email ke SEMUA ADMIN (user_role_id=1) yang punya email ttg
-    // pengajuan edit yang menunggu persetujuan. Opsional & aman: gagal/tak ada
-    // admin ber-email/tak ada config email → TIDAK menggagalkan simpan request.
-    // (2026-10-15: penerima diubah dari atasan pengaju ke admin, karena hanya
-    // admin yang boleh memutuskan pengajuan ini.)
-    @include_once __DIR__ . '/kpi_mailer.php';
-    if (function_exists('kpi_notify_edit_request') && $emp > 0) {
-        try {
-            kpi_notify_edit_request($pdo, $emp, $setup, $target, $bobot, $schedule);
-        } catch (Throwable $e) {
-            // Email gagal — biarkan request tetap tersimpan.
-        }
-    }
-
-    echo json_encode([
+    // ------------------------------------------------------------------
+    // Response dikirim DULU (dengan Content-Length supaya browser langsung
+    // menganggap body selesai), baru email dikirim. Penyebab lambat: 1 email
+    // = 1 koneksi SMTP (~4 detik), dikirim ke 3 admin berurutan ~8-13 detik,
+    // dan sebelumnya dikerjakan SEBELUM response.
+    // ------------------------------------------------------------------
+    $payload = json_encode([
         'status'  => 'success',
         'message' => 'Pengajuan edit diajukan dan menunggu persetujuan.',
         'data'    => ['request_id' => $rid, 'setup_id' => $setupId],
     ]);
+    header('Content-Length: ' . strlen($payload));
+    header('Connection: keep-alive');
+    echo $payload;
+
+    ignore_user_abort(true);
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
+    @flush();
+
+    // Email notifikasi DIMATIKAN (permintaan Pak 2026-11-24). Notifikasi ke
+    // approver & pengaju sekarang lewat lonceng in-app (NotificationController),
+    // jadi tidak perlu koneksi SMTP yang membuat simpan lambat.
+    // Untuk mengaktifkan lagi: set KPI_EMAIL_NOTIFY_ENABLED = true di kpi_mailer.php
+    // lalu hidupkan blok di bawah ini.
+    // Include DULU (file ini yang mendefinisikan KPI_EMAIL_NOTIFY_ENABLED),
+    // baru cek saklarnya — kalau tidak, konstanta belum ada dan email terlewat.
+    @include_once __DIR__ . '/kpi_mailer.php';
+    if (defined('KPI_EMAIL_NOTIFY_ENABLED') && KPI_EMAIL_NOTIFY_ENABLED === true
+        && $emp > 0 && function_exists('kpi_notify_edit_request')) {
+        try {
+            kpi_notify_edit_request($pdo, $emp, $setup, $target, $bobot, $schedule);
+        } catch (Throwable $e) {
+            // diabaikan
+        }
+    }
 } catch (Exception $e) {
     echo json_encode(['status'=>'error','message'=>'Gagal mengajukan edit: '.$e->getMessage()]);
 }

@@ -27,13 +27,35 @@ try {
 $emp = isset($_GET['emp']) ? (int)$_GET['emp'] : 0;
 
 try {
-    // Scope divisi (multi-divisi)
+    // Scope divisi (multi-divisi). Sejak 2026-11-24 (permintaan Pak) mapping
+    // divisi MENANG atas full-scope: Admin/BOD yang punya mapping hanya melihat
+    // pengajuan edit target/bobot divisinya sendiri.
     $isAdmin = false;
     $divisions = [];
     if ($emp > 0) {
         $isAdmin = kpiIsFullScope($pdo, $emp);
     }
-    if ($isAdmin) {
+    $approvalScope = kpiApprovalDivisionScope($pdo, $emp);
+    // BOD = approver lintas divisi (permintaan Pak 2026-11-24): mapping divisi
+    // TIDAK menyempitkan daftar, supaya pengajuan dari divisi mana pun tetap
+    // masuk ke menu Approval milik BOD (mis. andrew.colin).
+    $isBodApprover = (strcasecmp(kpiUserRoleName($pdo, $emp), 'BOD') === 0);
+    if ($approvalScope['has_mapping'] && !$isBodApprover) {
+        $divisions = $approvalScope['divisions'];
+        $in = implode(',', array_fill(0, count($divisions), '?'));
+        $st = $pdo->prepare(
+            "SELECT e.*, s.indikator,
+                    s.target AS target_old, s.bobot AS bobot_old, s.schedule AS schedule_old,
+                    CONCAT(emp.emp_firstname, ' ', emp.emp_lastname) AS requester_name
+             FROM ohrm_kpi_setup_edit_request e
+             JOIN ohrm_kpi_setup s ON s.id = e.setup_id
+             LEFT JOIN hs_hr_employee emp ON emp.emp_number = e.requested_by
+             WHERE e.divisi IN ($in)
+             ORDER BY (e.request_status = 'Menunggu') DESC, e.requested_at DESC, e.id DESC"
+        );
+        $st->execute($divisions);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+    } elseif ($isAdmin) {
         $sql = "SELECT e.*, s.indikator,
                        s.target AS target_old, s.bobot AS bobot_old, s.schedule AS schedule_old,
                        CONCAT(emp.emp_firstname, ' ', emp.emp_lastname) AS requester_name
