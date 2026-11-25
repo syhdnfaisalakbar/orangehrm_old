@@ -3,6 +3,8 @@ const path = require('path');
 const DumpBuildTimestampPlugin = require('./scripts/plugins/DumpBuildTimestampPlugin');
 
 module.exports = {
+  // sementara: thread-loader (parallel) gagal spawn di Node 24 Windows ("spawn UNKNOWN")
+  parallel: false,
   // --- KONFIGURASI DEV SERVER & PROXY (DITAMBAHKAN) ---
   devServer: {
     proxy: {
